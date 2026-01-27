@@ -171,20 +171,19 @@ MewsFeed's reply system maps directly to AP's `inReplyTo`.
 
 **Questions:**
 - How do we create stable URIs for Holochain agents?
-  - A: agent chooses a name in their profile (similarly to signing up for a Mastodon account) -tfw
+  - A: activitypub API will not be unusual. follow mastodon's examples where web access differs. entity identifiers may be based on mewsfeed hashes instead of the database record ids, for example the url to a post at holochain-net.mewsfeed.net. -tfw
 - Should a bridge service maintain a mapping database?
-  - A: no! -tfw
+  - A: no. if parts of urls for web access need to be remembered, IE not just holochain hashes, those parts may be persisted in the activitypub zome. -tfw
 
-**Possible Approaches:**
-1. **Bridge-hosted URIs:** `https://bridge.example/actors/{AgentPubKey}`
-2. **DID-based:** `did:holo:{AgentPubKey}` with DID resolution
-3. **WebFinger:** Implement WebFinger at bridge for `@user@bridge.example`
-   1. yes, this will need to be done, but I expect it can be done in the S2S module -tfw
+**Profile Pages** Access holochain agents on the mewsocial network at https://holochain-net.mewsfeed.net/@{profile-handle} where the profile handle is configurable in the agent's profile in mewsfeed.
+
+**WebFinger:** Implement WebFinger in the S2S module
 
 **Open Questions:**
 - What happens when a Holochain agent has multiple bridge connections?
   - A: does not happen. the bridge is identified by the domain, and specifying the subdomain (initially) will include specifying the *single* bridge. -tfw
 - How do we handle key rotation or agent migration?
+  - A: ideally, reuse the previous agent profile and gateway configuration, but if a new holochain dht is established, it probably will require a new subdomain, and appear on the fediverse like the mewsocial accounts moved to a new instance, which always involves some friction. -tfw
 
 ### 2. Follow Acceptance Model
 
@@ -192,14 +191,12 @@ MewsFeed's reply system maps directly to AP's `inReplyTo`.
 **ActivityPub:** Follows require acceptance (`Accept { Follow }`)
 
 **Questions:**
-- Should the bridge auto-accept follows from Holochain agents?
+- Should the agent auto-accept follows from Holochain agents?
+  - A: no -tfw
 - How do we handle AP accounts with locked/approval-required follows?
+  - A: pending follow will have to be modeled in the zome -tfw
 - Should we add follow-request functionality to MewsFeed?
-
-**Possible Approaches:**
-1. Auto-accept all Holochain → AP follows (may not be desired)
-2. Queue follow requests and notify MewsFeed user somehow
-3. Add optional follow-request approval to MewsFeed
+  - A: yes, and it is simply that instead of push-button follow, it is a push-button follow-request. -tfw
 
 ### 3. Profile Mapping
 
@@ -235,11 +232,14 @@ Profile {
 ### 4. URL References
 
 **MewsFeed:** `LinkTarget::Url(String)` in mew links
+
 **ActivityPub:** URLs can appear in content as `<a>` tags
 
 **Questions:**
 - Should we parse mew text for URLs and include as links?
+  - A: yes -tfw
 - How do we handle link preview cards (AP `attachment` with link preview)?
+  - A: on first release, no, do not support link preview cards. -tfw
 
 ### 5. Notifications
 
@@ -268,6 +268,7 @@ Profile {
 
 **Questions:**
 - How do we map cursor-based pagination between systems?
+  - A: on first release, do not. present a single page. -tfw
 - How do we present MewsFeed's link-based queries as AP collections?
 
 ---
@@ -288,12 +289,14 @@ Profile {
 **Challenges:**
 - AP requires knowing recipient inboxes upfront
 - MewsFeed has no concept of "sending to" specific users
+  - A: so necessary information about followers must be managed by the activitypub zome. -tfw
 - A bridge must translate gossip-discovered content into addressed deliveries
+  - A: the activitypub zome will collect all mewsfeed data that the S2S module needs for push. -tfw
 
 **Implications:**
-- Bridge must poll/monitor Holochain for new content
-- Bridge must maintain knowledge of AP followers to deliver to their inboxes
-- Latency between MewsFeed post and AP delivery depends on bridge polling
+- S2S module monitors activitypub zome for new content
+- activitypub zome must maintain knowledge of AP followers to deliver to their inboxes
+- on post creation, activitypub zome registers the initiation of the push protocol, and the S2S module will send the content to the followers
 
 ### 2. Privacy and Visibility
 
@@ -307,13 +310,15 @@ Profile {
 
 **Challenges:**
 - No way to create followers-only mews in MewsFeed
+  - A: Mewsfeed UI will require ActivityPub widgets for publishing a mew outside holochain. I propose a separate button for each visibility level.
 - No way to create direct/private mews
-- Incoming private AP content has no MewsFeed equivalent
+  - A: direct messaging will be activitypub-only, and will not be reflected in the MewsFeed zome.
 
 **Implications:**
-- Bridge can only share public AP content with MewsFeed
-- MewsFeed content bridges as public AP content only
-- True private messaging requires a separate solution
+- direct or followers-only AP content may be technically available at a low level to other MewsFeed peers on the same DHT
+- the UI must be written to elide followers-only or direct messages intented for a different mewsfeed agent.
+- MewsFeed posts must be assigned a visibility level by the activitypub zome so that the S2S module may publish AP content correctly
+- True private messaging is not possible in activitypub, and these finer points may have to be documented.
 
 ### 3. Content Mutability
 
@@ -324,10 +329,9 @@ Profile {
 - Incoming AP updates have no MewsFeed representation
 - MewsFeed users cannot edit bridged content
 
-**Possible Approaches:**
-1. Ignore incoming updates (lose edit history)
-2. Create new mew with reference to original (thread pollution)
-3. Store updates in bridge database only (not on Holochain)
+**Extrapolations:**
+1. in pre-alpha, we may ignore incoming updates (lose edit history)
+2. mewsfeed may be updated to support edits later
 
 ### 4. Deletion Semantics
 
@@ -344,7 +348,10 @@ Profile {
 **Challenges:**
 - AP deletion is a request; MewsFeed deletion is a fact
 - Holochain's append-only nature means content may still be retrievable
-- "Right to be forgotten" harder to implement
+- both of these systems are imperfect in different ways
+
+**Plan:**
+- MewsFeed will support deletion by persisting a tombstone, and will check for tombstones when retrieving content.
 
 ### 5. Server vs Peer Identity
 
@@ -356,15 +363,6 @@ Profile {
 - Bridge must act as "server" for Holochain agents
 - Trust model fundamentally different
 
-### 6. Real-time Updates
-
-**ActivityPub:** No standard real-time; some implement WebSocket/SSE
-**MewsFeed:** Signal-based notifications within Holochain
-
-**Challenges:**
-- No standard way to push updates between systems
-- Bridge must poll both systems
-
 ### 7. Content Addressing vs Location Addressing
 
 **ActivityPub:** Content identified by URL (location-based)
@@ -373,23 +371,25 @@ Profile {
 **Challenges:**
 - Same content has different identifiers
 - Content at URL can change; content at hash cannot
-- Bridge must maintain bidirectional ID mapping
+
+- activitypub zome maintains bidirectional ID mapping, including time stamp of record, disregarding inconsistencies
+- UI must expose URLs of Fediverse posts, which may be opened in a browser
 
 ### 8. Moderation and Blocking
 
 **ActivityPub:**
 - Server-level blocks (defederation)
+  - A: all mewsfeed agents are instance moderators and may block, unblock, and whitelist other instances -tfw
 - User-level blocks (mute, block)
-- Domain blocks
+  - A: each mewsfeed agent configures their own lists -tfw
 
 **MewsFeed:**
-- No built-in blocking/muting
-- No server-level moderation (peer-to-peer)
+- No built-in blocking/muting, so this UI must be added to support these ActivityPub features
+- No server-level moderation (peer-to-peer), so all mewsfeed agents must be moderators
 
 **Challenges:**
-- How does a MewsFeed user block an AP account?
 - How does AP blocking affect Holochain content?
-- No moderation authority in Holochain
+  - A: the S2S module will act in accordance with the _network-wide federation policy_ **and** the _agent policy_, but shall **not** be required to honor all agent-level policies. This may mean that some AP content may be blocked by Bob's S2S module which Alice expects to see. Alice may retrieve that content from the Fediverse independently, and then Bob and others in the mewsfeed DHT may become aware of it. Blocking will not be water-tight, but in the UI, a mewsfeed user should *not* see any AP content that they have blocked.
 
 ---
 
@@ -442,7 +442,6 @@ Profile {
 
 ### Short-term (MVP Bridge)
 
-1. **Identity:** Use bridge-hosted URIs (`https://bridge.example/actors/{AgentPubKey}`)
 2. **Content:** Bridge `Original` mews as public `Note` activities
 3. **Interactions:** Support Like, Announce, Reply in both directions
 4. **Follows:** Auto-accept follows; document limitation
@@ -458,21 +457,21 @@ Profile {
 
 ### Long-term Considerations
 
-1. **Privacy:** Research private entry sharing in Holochain for followers-only content
-2. **DID integration:** Move toward DID-based identity for better interop
 3. **Moderation:** Develop community moderation patterns for Holochain
-4. **Real-time:** Implement WebSocket/SSE for bridge notifications
+4. **Real-time:** utilize _unified push_ for notification
 
 ### Bridge Architecture Implications
 
-The bridge must:
+The S2S module must:
 1. **Poll Holochain** for new mews, likes, follows
-2. **Maintain state** mapping ActionHashes ↔ AP URIs
-3. **Track followers** to know where to deliver activities
-4. **Handle inbox** for incoming AP activities
 5. **Convert formats** bidirectionally
 6. **Respect rate limits** on AP servers
 7. **Handle errors** gracefully (unreachable servers, etc.)
+
+The activitypub zome must:
+2. **Maintain state** mapping ActionHashes ↔ AP URIs
+3. **Track followers** to know where to deliver activities
+4. **Handle inbox** for incoming AP activities
 
 ---
 
