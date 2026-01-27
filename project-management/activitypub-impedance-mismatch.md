@@ -175,7 +175,7 @@ MewsFeed's reply system maps directly to AP's `inReplyTo`.
 - Should a bridge service maintain a mapping database?
   - A: no. if parts of urls for web access need to be remembered, IE not just holochain hashes, those parts may be persisted in the activitypub zome. -tfw
 
-**Profile Pages** Access holochain agents on the mewsocial network at https://holochain-net.mewsfeed.net/@{profile-handle} where the profile handle is configurable in the agent's profile in mewsfeed.
+**Profile Pages** Access holochain agents on the MewsFeed network at https://holochain-net.mewsfeed.net/@{profile-handle} where the profile handle is configurable in the agent's profile in mewsfeed.
 
 **WebFinger:** Implement WebFinger in the S2S module
 
@@ -183,7 +183,7 @@ MewsFeed's reply system maps directly to AP's `inReplyTo`.
 - What happens when a Holochain agent has multiple bridge connections?
   - A: does not happen. the bridge is identified by the domain, and specifying the subdomain (initially) will include specifying the *single* bridge. -tfw
 - How do we handle key rotation or agent migration?
-  - A: ideally, reuse the previous agent profile and gateway configuration, but if a new holochain dht is established, it probably will require a new subdomain, and appear on the fediverse like the mewsocial accounts moved to a new instance, which always involves some friction. -tfw
+  - A: ideally, reuse the previous agent profile and gateway configuration, but if a new holochain dht is established, it probably will require a new subdomain, and appear on the fediverse like the MewsFeed accounts moved to a new instance, which always involves some friction. -tfw
 
 ### 2. Follow Acceptance Model
 
