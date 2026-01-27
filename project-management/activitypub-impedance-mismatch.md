@@ -59,7 +59,7 @@ Mew {
   "type": "Note",
   "content": "Hello Fediverse! #holochain",
   "published": "2024-01-15T10:30:00Z",
-  "attributedTo": "https://bridge.example/actors/uhCAk..."
+  "attributedTo": "https://holochain-net.mewsfeed.net/actors/uhCAk..."
 }
 ```
 
@@ -92,8 +92,8 @@ MewsFeed's reply system maps directly to AP's `inReplyTo`.
 ```json
 {
   "type": "Announce",
-  "actor": "https://bridge.example/actors/uhCAk...",
-  "object": "https://bridge.example/notes/uhCEk..."
+  "actor": "https://holochain-net.mewsfeed.net/actors/uhCAk...",
+  "object": "https://holochain-net.mewsfeed.net/notes/uhCEk..."
 }
 ```
 
@@ -134,7 +134,7 @@ MewsFeed's reply system maps directly to AP's `inReplyTo`.
   "tag": [
     {
       "type": "Hashtag",
-      "href": "https://bridge.example/tags/holochain",
+      "href": "https://holochain-net.mewsfeed.net/tags/holochain",
       "name": "#holochain"
     }
   ]
@@ -171,9 +171,9 @@ MewsFeed's reply system maps directly to AP's `inReplyTo`.
 
 **Questions:**
 - How do we create stable URIs for Holochain agents?
-  - A: activitypub API will not be unusual. follow mastodon's examples where web access differs. entity identifiers may be based on mewsfeed hashes instead of the database record ids, for example the url to a post at holochain-net.mewsfeed.net. -tfw
+  - A: ActivityPub API will not be unusual. follow mastodon's examples where web access differs. entity identifiers may be based on mewsfeed hashes instead of the database record ids, for example the url to a post at holochain-net.mewsfeed.net. -tfw
 - Should a bridge service maintain a mapping database?
-  - A: no. if parts of urls for web access need to be remembered, IE not just holochain hashes, those parts may be persisted in the activitypub zome. -tfw
+  - A: no. if parts of urls for web access need to be remembered, IE not just holochain hashes, those parts may be persisted in the ActivityPub zome. -tfw
 
 **Profile Pages** Access holochain agents on the MewsFeed network at https://holochain-net.mewsfeed.net/@{profile-handle} where the profile handle is configurable in the agent's profile in mewsfeed.
 
@@ -188,15 +188,16 @@ MewsFeed's reply system maps directly to AP's `inReplyTo`.
 ### 2. Follow Acceptance Model
 
 **MewsFeed:** Follows are unilateral—anyone can follow anyone instantly
+
 **ActivityPub:** Follows require acceptance (`Accept { Follow }`)
 
 **Questions:**
 - Should the agent auto-accept follows from Holochain agents?
-  - A: no -tfw
+  - A: yes, but *only* from agents on the *same* MewsFeed DHT. -tfw
 - How do we handle AP accounts with locked/approval-required follows?
-  - A: pending follow will have to be modeled in the zome -tfw
+  - A: pending follow will have to be modeled in the ActivityPub zome. -tfw
 - Should we add follow-request functionality to MewsFeed?
-  - A: yes, and it is simply that instead of push-button follow, it is a push-button follow-request. -tfw
+  - A: not in the MewsFeed zome, but yes in the UI, in case a profile is from the Fediverse. -tfw
 
 ### 3. Profile Mapping
 
@@ -289,14 +290,14 @@ Profile {
 **Challenges:**
 - AP requires knowing recipient inboxes upfront
 - MewsFeed has no concept of "sending to" specific users
-  - A: so necessary information about followers must be managed by the activitypub zome. -tfw
+  - A: so necessary information about followers must be managed by the ActivityPub zome. -tfw
 - A bridge must translate gossip-discovered content into addressed deliveries
-  - A: the activitypub zome will collect all mewsfeed data that the S2S module needs for push. -tfw
+  - A: the ActivityPub zome will collect all mewsfeed data that the S2S module needs for push. -tfw
 
 **Implications:**
-- S2S module monitors activitypub zome for new content
-- activitypub zome must maintain knowledge of AP followers to deliver to their inboxes
-- on post creation, activitypub zome registers the initiation of the push protocol, and the S2S module will send the content to the followers
+- S2S module monitors ActivityPub zome for new content
+- ActivityPub zome must maintain knowledge of AP followers to deliver to their inboxes
+- on post creation, ActivityPub zome registers the initiation of the push protocol, and the S2S module will send the content to the followers
 
 ### 2. Privacy and Visibility
 
@@ -312,13 +313,13 @@ Profile {
 - No way to create followers-only mews in MewsFeed
   - A: Mewsfeed UI will require ActivityPub widgets for publishing a mew outside holochain. I propose a separate button for each visibility level.
 - No way to create direct/private mews
-  - A: direct messaging will be activitypub-only, and will not be reflected in the MewsFeed zome.
+  - A: direct messaging will be ActivityPub-only, and will not be reflected in the MewsFeed zome.
 
 **Implications:**
 - direct or followers-only AP content may be technically available at a low level to other MewsFeed peers on the same DHT
 - the UI must be written to elide followers-only or direct messages intented for a different mewsfeed agent.
-- MewsFeed posts must be assigned a visibility level by the activitypub zome so that the S2S module may publish AP content correctly
-- True private messaging is not possible in activitypub, and these finer points may have to be documented.
+- MewsFeed posts must be assigned a visibility level by the ActivityPub zome so that the S2S module may publish AP content correctly
+- True private messaging is not possible in ActivityPub, and these finer points may have to be documented.
 
 ### 3. Content Mutability
 
@@ -356,11 +357,13 @@ Profile {
 ### 5. Server vs Peer Identity
 
 **ActivityPub:** Actors are hosted on servers; server vouches for actor
+
 **Holochain:** Agents are self-sovereign; no server authority
+
+**Difference:** S2S module will act as "server" for Holochain agents, connecting through thin gateway to ActivityPub.
 
 **Challenges:**
 - AP expects HTTP endpoints for actors
-- Bridge must act as "server" for Holochain agents
 - Trust model fundamentally different
 
 ### 7. Content Addressing vs Location Addressing
@@ -372,7 +375,7 @@ Profile {
 - Same content has different identifiers
 - Content at URL can change; content at hash cannot
 
-- activitypub zome maintains bidirectional ID mapping, including time stamp of record, disregarding inconsistencies
+- ActivityPub zome maintains bidirectional ID mapping, including time stamp of record, disregarding inconsistencies
 - UI must expose URLs of Fediverse posts, which may be opened in a browser
 
 ### 8. Moderation and Blocking
@@ -468,7 +471,7 @@ The S2S module must:
 6. **Respect rate limits** on AP servers
 7. **Handle errors** gracefully (unreachable servers, etc.)
 
-The activitypub zome must:
+The ActivityPub zome must:
 2. **Maintain state** mapping ActionHashes ↔ AP URIs
 3. **Track followers** to know where to deliver activities
 4. **Handle inbox** for incoming AP activities
