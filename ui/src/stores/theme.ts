@@ -25,6 +25,9 @@ export const useThemeStore = defineStore("theme", {
   },
   actions: {
     set(theme: string) {
+      if (!this.themes.includes(theme)) return;
+      if (this.active === theme) return;
+
       this.active = theme;
       this.apply();
     },
