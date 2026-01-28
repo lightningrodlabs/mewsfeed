@@ -1,0 +1,8 @@
+This StackOverflow Q queries a chicken-and-egg challenge with "how to get an actor" which ends up exposing the concept of an "instance actor."
+
+https://stackoverflow.com/a/77760840
+
+> Each instance can serve a special AP actor that represents the instance itself. Fetches for the instance actor do not require signatures, even if fetches for other actors and objects do. When an instance needs to make one of these chicken-and-egg external fetches that might require a signature, it can sign the fetch as its instance actor to break the loop.
+>
+> More: https://seb.jambor.dev/posts/understanding-activitypub-part-4-threads/
+

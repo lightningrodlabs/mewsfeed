@@ -17,13 +17,13 @@ This document outlines the implementation plan for WebFinger (RFC 7033) support 
 
 ## Overview
 
-WebFinger enables remote ActivityPub servers to discover MewsFeed users. When a Mastodon user searches for `@alice@main.mewsfeed.example`, Mastodon queries WebFinger to find Alice's Actor URL.
+WebFinger enables remote ActivityPub servers to discover MewsFeed users. When a Mastodon user searches for `@alice@holochain-net.mewsfeed.net`, Mastodon queries WebFinger to find Alice's Actor URL.
 
 ### User Discovery Flow
 
 ```
-1. User searches: @alice@main.mewsfeed.example
-2. Remote server queries: GET https://main.mewsfeed.example/.well-known/webfinger?resource=acct:alice@main.mewsfeed.example
+1. User searches: @alice@holochain-net.mewsfeed.net
+2. Remote server queries: GET https://holochain-net.mewsfeed.net/.well-known/webfinger?resource=acct:alice@holochain-net.mewsfeed.net
 3. MewsFeed returns: JRD with links to Actor, profile page, etc.
 4. Remote server fetches Actor URL to get full profile
 ```
@@ -50,25 +50,25 @@ Accept: application/jrd+json
 
 ```json
 {
-  "subject": "acct:alice@main.mewsfeed.example",
+  "subject": "acct:alice@holochain-net.mewsfeed.net",
   "aliases": [
-    "https://main.mewsfeed.example/users/alice",
-    "https://main.mewsfeed.example/@alice"
+    "https://holochain-net.mewsfeed.net/users/alice",
+    "https://holochain-net.mewsfeed.net/@alice"
   ],
   "links": [
     {
       "rel": "self",
       "type": "application/activity+json",
-      "href": "https://main.mewsfeed.example/users/alice"
+      "href": "https://holochain-net.mewsfeed.net/users/alice"
     },
     {
       "rel": "http://webfinger.net/rel/profile-page",
       "type": "text/html",
-      "href": "https://main.mewsfeed.example/@alice"
+      "href": "https://holochain-net.mewsfeed.net/@alice"
     },
     {
       "rel": "http://ostatus.org/schema/1.0/subscribe",
-      "template": "https://main.mewsfeed.example/authorize_interaction?uri={uri}"
+      "template": "https://holochain-net.mewsfeed.net/authorize_interaction?uri={uri}"
     }
   ]
 }
@@ -98,9 +98,8 @@ Access-Control-Allow-Origin: *
 WebFinger is implemented across three components per the fedimew architecture:
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
 │                         Components                               │
-├─────────────────────────────────────────────────────────────────┤
+|------------------------------------------------------------
 │                                                                  │
 │  ┌──────────────────────┐                                       │
 │  │ activitypub_types    │  Shared types (WebFingerRequest,     │
@@ -123,7 +122,7 @@ WebFinger is implemented across three components per the fedimew architecture:
 │  │ zome         │    Username lookup, JRD generation            │
 │  └──────────────┘                                               │
 │                                                                  │
-└─────────────────────────────────────────────────────────────────┘
+---------------------
 ```
 
 ---
@@ -148,7 +147,7 @@ impl WebFingerQuery {
     /// Parse the resource into username and domain
     /// Returns (username, domain) or error
     pub fn parse_acct(&self) -> Result<(String, String), WebFingerError> {
-        // Parse "acct:alice@main.mewsfeed.example"
+        // Parse "acct:alice@holochain-net.mewsfeed.net"
         let acct = self.resource.strip_prefix("acct:")
             .ok_or(WebFingerError::InvalidResource)?;
         let parts: Vec<&str> = acct.split('@').collect();
@@ -452,9 +451,9 @@ fn parse_query_string(query: &str) -> Result<HashMap<String, String>, S2SError> 
 use crate::webfinger::{handle_webfinger_request, webfinger_to_http_response, webfinger_error_to_http_response};
 
 pub async fn route_request(
-    request: HttpRequest,
-    domain: &str,
-    conductor: &ConductorClient,
+   request: HttpRequest,
+   domain: &str,
+   conductor: &ConductorClient,
 ) -> HttpResponse {
     match (request.method.as_str(), request.path.as_str()) {
         // WebFinger endpoint
@@ -492,39 +491,32 @@ pub async fn route_request(
 ### Complete WebFinger Request Flow
 
 ```
-┌────────────────────────────────────────────────────────────────────────────┐
 │ Remote Server (e.g., Mastodon)                                             │
 │                                                                            │
-│  User searches: @alice@main.mewsfeed.example                              │
+│  User searches: @alice@holochain-net.mewsfeed.net                              │
 │                                                                            │
-└────────────────────────────────────┬───────────────────────────────────────┘
                                      │
                                      │ 1. HTTP GET
-                                     │    /.well-known/webfinger?resource=acct:alice@main.mewsfeed.example
+                                     │    /.well-known/webfinger?resource=acct:alice@holochain-net.mewsfeed.net
                                      ▼
-┌────────────────────────────────────────────────────────────────────────────┐
 │ HTTP Gateway                                                               │
 │                                                                            │
 │  - Extracts subdomain: main                                               │
 │  - Forwards to S2S module's local endpoint                                │
 │                                                                            │
-└────────────────────────────────────┬───────────────────────────────────────┘
                                      │
                                      │ 2. Forward HTTP request
                                      ▼
-┌────────────────────────────────────────────────────────────────────────────┐
 │ ActivityPub S2S Module (in Tauri)                                         │
 │                                                                            │
-│  - Parse query: resource=acct:alice@main.mewsfeed.example                 │
-│  - Extract: username=alice, domain=main.mewsfeed.example                  │
+│  - Parse query: resource=acct:alice@holochain-net.mewsfeed.net                 │
+│  - Extract: username=alice, domain=holochain-net.mewsfeed.net                  │
 │  - Validate domain matches expected                                        │
 │                                                                            │
-└────────────────────────────────────┬───────────────────────────────────────┘
                                      │
                                      │ 3. AppWebsocket call
                                      │    activitypub.get_webfinger_response({username, domain})
                                      ▼
-┌────────────────────────────────────────────────────────────────────────────┐
 │ ActivityPub Zome                                                          │
 │                                                                            │
 │  - Lookup: Path("usernames/alice") → UsernameToAgent link                 │
@@ -532,41 +524,37 @@ pub async fn route_request(
 │  - Verify federation enabled                                               │
 │  - Build JRD with actor URL, profile URL, subscribe template              │
 │                                                                            │
-└────────────────────────────────────┬───────────────────────────────────────┘
                                      │
                                      │ 4. Return WebFingerResponse
                                      ▼
-┌────────────────────────────────────────────────────────────────────────────┐
 │ ActivityPub S2S Module                                                    │
 │                                                                            │
 │  - Serialize to JSON                                                       │
 │  - Set Content-Type: application/jrd+json                                 │
 │  - Set CORS headers                                                        │
 │                                                                            │
-└────────────────────────────────────┬───────────────────────────────────────┘
                                      │
                                      │ 5. HTTP 200 + JRD body
                                      ▼
-┌────────────────────────────────────────────────────────────────────────────┐
 │ HTTP Gateway → Remote Server                                              │
 │                                                                            │
 │  Response:                                                                 │
 │  {                                                                         │
-│    "subject": "acct:alice@main.mewsfeed.example",                         │
+│    "subject": "acct:alice@holochain-net.mewsfeed.net",                         │
 │    "links": [                                                              │
 │      {                                                                     │
 │        "rel": "self",                                                      │
 │        "type": "application/activity+json",                               │
-│        "href": "https://main.mewsfeed.example/users/alice"                │
+│        "href": "https://holochain-net.mewsfeed.net/users/alice"                │
 │      },                                                                    │
 │      ...                                                                   │
 │    ]                                                                       │
 │  }                                                                         │
 │                                                                            │
-└────────────────────────────────────────────────────────────────────────────┘
+└——————————————————┘
                                      │
                                      │ 6. Remote server fetches actor URL
-                                     │    GET https://main.mewsfeed.example/users/alice
+                                     │    GET https://holochain-net.mewsfeed.net/users/alice
                                      │    Accept: application/activity+json
                                      ▼
                               (Actor endpoint)
@@ -646,18 +634,18 @@ mod tests {
     #[test]
     fn parse_valid_acct() {
         let query = WebFingerQuery {
-            resource: "acct:alice@main.mewsfeed.example".to_string(),
+            resource: "acct:alice@holochain-net.mewsfeed.net".to_string(),
             rel: None,
         };
         let (user, domain) = query.parse_acct().unwrap();
         assert_eq!(user, "alice");
-        assert_eq!(domain, "main.mewsfeed.example");
+        assert_eq!(domain, "holochain-net.mewsfeed.net");
     }
 
     #[test]
     fn parse_invalid_acct_no_prefix() {
         let query = WebFingerQuery {
-            resource: "alice@main.mewsfeed.example".to_string(),
+            resource: "alice@holochain-net.mewsfeed.net".to_string(),
             rel: None,
         };
         assert!(query.parse_acct().is_err());
@@ -816,23 +804,23 @@ describe('WebFinger', () => {
 1. **curl tests against running instance:**
    ```bash
    # Valid request
-   curl -i "https://main.mewsfeed.example/.well-known/webfinger?resource=acct:alice@main.mewsfeed.example"
+   curl -i "https://holochain-net.mewsfeed.net/.well-known/webfinger?resource=acct:alice@holochain-net.mewsfeed.net"
 
    # With rel filter
-   curl -i "https://main.mewsfeed.example/.well-known/webfinger?resource=acct:alice@main.mewsfeed.example&rel=self"
+   curl -i "https://holochain-net.mewsfeed.net/.well-known/webfinger?resource=acct:alice@holochain-net.mewsfeed.net&rel=self"
 
    # Missing resource
-   curl -i "https://main.mewsfeed.example/.well-known/webfinger"
+   curl -i "https://holochain-net.mewsfeed.net/.well-known/webfinger"
 
    # Invalid resource format
-   curl -i "https://main.mewsfeed.example/.well-known/webfinger?resource=invalid"
+   curl -i "https://holochain-net.mewsfeed.net/.well-known/webfinger?resource=invalid"
 
    # Non-existent user
-   curl -i "https://main.mewsfeed.example/.well-known/webfinger?resource=acct:nobody@main.mewsfeed.example"
+   curl -i "https://holochain-net.mewsfeed.net/.well-known/webfinger?resource=acct:nobody@holochain-net.mewsfeed.net"
    ```
 
 2. **Mastodon search test:**
-   - On Mastodon, search for `@alice@main.mewsfeed.example`
+   - On Mastodon, search for `@alice@holochain-net.mewsfeed.net`
    - Verify the profile resolves
    - Verify follow button works
 
