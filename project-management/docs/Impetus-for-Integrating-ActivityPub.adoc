@@ -1,0 +1,47 @@
+
+= Impetus for Integrating ActivityPub
+
+ActivityPub integration is an exciting prospect because it could remove a significant barrier to groups connecting to the Fediverse:
+presently, connecting a group to the Fediverse requires that they need a technical team to set up and administer an instance.
+The target for this integration is for people to easily create, or follow an invitation to, to a MewsFeed group with a similar user experience to following an invite link to a Discord server or Signal group.
+Once connected to a MewsFeed DHT people may participate in the whole Fediverse.
+The group would collectively administer an instance.
+
+== use cases
+
+=== group sessions
+
+At a presentation the presenter or facilitator may begin with a QR code to join a MewsFeed DHT, and seed a hashtag for Q&A, and the public may follow notes, photos, and all such posts from everyone in the room.
+The conversations may be continued at the end of the session.
+Participants need not expose personal information to be identified as having been present.
+A college class, or any congruent social structure could follow this story, and of course, a larger group could coalesce for a whole conference or college or any institution.
+
+=== coordination and connection ahead of events
+
+A whole conference or other large event like a music festival could invite ticket holders
+to a MewsFeed DHT to hype the event and make official announcements
+in a way that is publicly visible on the social web,
+**but** optionally default invitees to _DHT-only_ posts so that participants may coordinate connections, make travel arrangements, and share important information and photos.
+
+Beyond the utility of information and communication, in this story the event producer gives attendees a way to *identify* to the world their membership.
+
+=== decentralized activism
+
+DHT replication could theoretically circumvent censorship with sneakernet-style message delivery in cases where
+censorship or misaligned moderation would otherwise present a challenge for coordinating exercising individuals' right to assemble.
+Materials may also be published to the web via ActivityPub directly from an individual's device via a thin/cheap/stateless gateway (see ActivityPub bridge architecture).
+No agents have any sort of privilege in the model.
+
+=== clubs & other chat groups
+
+MewsFeed could act as a drop-in replacement for chat in any kind of group context, with the added benefit of being able to publish to the web and communicate with the rest of the Fediverse.
+
+=== journalism
+
+Publishing live perspectives on the scene, supported by a team mirroring the DHT and maintaining edge nodes for availability.
+
+== Holochain visibility
+
+All of these uses of MewsFeed would generate awareness of Holochain and p2p technology,
+shifting public opinion to understand and demand the appropriate technology for their needs,
+and leading to trying other software built on Holochain.
