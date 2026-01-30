@@ -9,7 +9,7 @@ This plan implements ActivityPub Server-to-Server (S2S) protocol integration for
 - **Per-post federation**: Users choose which mews to federate (not all-or-nothing)
 - **Minimal infrastructure**: Only a generic HTTP gateway required outside the hApp
 - **Private by default**: Posts can remain Holochain-only
-- **Shared types crate**: ActivityPub types shared between S2S module and zome
+- **Shared types crate**: Federation state types (`federation_types`) shared between S2S module and zome; AP protocol types internal to `activitypub-s2s`
 
 ### Addressing Pattern
 ```
@@ -44,10 +44,10 @@ Example: @alice@main.mewsfeed.example
               └─────────────────────────┘
 
               ┌─────────────────────────┐
-              │   activitypub_types     │
+              │   federation_types      │
               │   (shared crate)        │
               │   imported by both      │
-              │   S2S module + zome         │
+              │   S2S module + zome     │
               └─────────────────────────┘
 ```
 
@@ -66,14 +66,15 @@ Example: @alice@main.mewsfeed.example
    - WebFinger resolution
    - Outbound HTTP requests (reqwest)
    - Calls zome via AppWebsocket
-   - Uses shared `activitypub_types` crate
+   - Uses shared `federation_types` crate for state types
+   - AP protocol types (`APActor`, `APNote`, `APActivity`, etc.) are internal to this crate
 
 3. **ActivityPub Zome** handles:
    - Data model (entries, links, validation)
    - AP ↔ Mewsfeed mapping
    - Federation state tracking
    - Emits signals for UI
-   - Uses shared `activitypub_types` crate
+   - Uses shared `federation_types` crate
 
 4. **Benefits**:
    - Gateway never needs redeployment for protocol changes
@@ -86,22 +87,31 @@ Example: @alice@main.mewsfeed.example
 
 ## Components to Implement
 
-### 1. Shared ActivityPub Types Crate
+### 1. Shared and Protocol Type Crates
 
-**Location**: `crates/activitypub_types/`
+Types are split across two crates:
 
-A shared crate imported by **both** the activitypub-s2s crate (outside DNA) and the activitypub zome (inside DNA). Defines ActivityPub types for communication between them.
+**`crates/federation_types/`** — DHT-safe shared state types (compiles to both WASM and native). Imported by **both** the activitypub-s2s crate and the activitypub zome.
 
 ```
-crates/activitypub_types/src/
+crates/federation_types/src/
 ├── lib.rs                    # Re-exports
-├── actor.rs                  # AP Actor/Person types
-├── object.rs                 # AP Object types (Note, etc.)
-├── activity.rs               # AP Activity types (Create, Follow, Like, etc.)
+├── state.rs                  # MewFederationState, FederationVisibility
+├── references.rs             # RemoteActorRef, RemoteFollow, RemoteFollower, RemoteInteraction
+└── config.rs                 # InstanceConfig, InviteUrlParams
+```
+
+**`crates/activitypub-s2s/`** — AP protocol types, native-only (no WASM, no `hdk`). These types handle JSON-LD `@context`, complex nested objects, and protocol-specific serialization.
+
+```
+crates/activitypub-s2s/src/
+├── lib.rs                    # Re-exports, AS_CONTEXT / SECURITY_CONTEXT / AS_PUBLIC constants
+├── actor.rs                  # APActor, APPublicKey, APImage
+├── note.rs                   # APNote, APTag
+├── activity.rs               # APActivity struct, activity_type constants module
 ├── collections.rs            # OrderedCollection, OrderedCollectionPage
-├── webfinger.rs              # WebFinger JRD types
-├── signatures.rs             # HTTP Signature types
-└── federation.rs             # Federation state types (shared between S2S module/zome)
+├── webfinger.rs              # WebFingerResponse, WebFingerLink
+└── signatures.rs             # SignatureHeaders, SignatureParseError
 ```
 
 **Key Types**:
@@ -135,23 +145,39 @@ pub struct APNote {
     pub sensitive: bool,
 }
 
-// Activities
-pub enum APActivity {
-    Create { id: String, actor: String, object: APNote },
-    Follow { id: String, actor: String, object: String },
-    Accept { id: String, actor: String, object: Box<APActivity> },
-    Like { id: String, actor: String, object: String },
-    Announce { id: String, actor: String, object: String },
-    Undo { id: String, actor: String, object: Box<APActivity> },
-    Delete { id: String, actor: String, object: String },
+// Activities — flat struct, not an enum.
+// Real AP JSON uses a "type" discriminant with a polymorphic "object" field
+// (sometimes a string URI, sometimes a nested object, sometimes an array).
+// A flat struct with `object: serde_json::Value` avoids fragile
+// `#[serde(untagged)]` enum issues.
+pub struct APActivity {
+    pub context: serde_json::Value,
+    pub id: String,
+    pub activity_type: String,    // "Create", "Follow", "Accept", etc.
+    pub actor: String,
+    pub object: serde_json::Value, // Shape varies by activity_type
+    pub to: Vec<String>,
+    pub cc: Vec<String>,
+    pub published: Option<String>,
 }
 
-// Federation state (used by both S2S module and zome)
-pub struct FederationState {
-    pub mew_hash: String,
-    pub ap_id: Option<String>,
+pub mod activity_type {
+    pub const CREATE: &str = "Create";
+    pub const FOLLOW: &str = "Follow";
+    pub const ACCEPT: &str = "Accept";
+    pub const REJECT: &str = "Reject";
+    pub const LIKE: &str = "Like";
+    pub const ANNOUNCE: &str = "Announce";
+    pub const UNDO: &str = "Undo";
+    pub const DELETE: &str = "Delete";
+}
+
+// Federation state (used by both S2S module and zome, defined in federation_types crate)
+// Delivery tracking is handled by the S2S module outside the DHT.
+pub struct MewFederationState {
+    pub mew_hash: ActionHash,
+    pub ap_uri: Option<String>,
     pub visibility: FederationVisibility,
-    pub delivery_status: DeliveryStatus,
 }
 ```
 
@@ -177,7 +203,6 @@ pub struct FederationState {
 ```rust
 // Entry Types
 FederationConfig        // Agent's AP settings (enabled, username, public_key_pem)
-FederationPrivateKey    // Private entry for signing key
 RemoteActor             // Cached remote AP actors
 MewFederationState      // Per-mew federation state and visibility
 IncomingActivity        // Received AP activities            **(not an entry)
@@ -207,7 +232,7 @@ The zome **models ActivityPub state** and **maps between AP and Mewsfeed**. All 
 - `enable_federation(username)` - Create FederationConfig, link username
 - `disable_federation()` - Mark config disabled
 - `get_federation_config(agent)` - Get agent's AP config
-- `store_keypair(public_key_pem, encrypted_private_key)` - Store signing keys
+- `store_public_key(public_key_pem)` - Store the public key provided by S2S module (private key stays in S2S module)
 
 **AP ↔ Mewsfeed Mapping**:
 - `mew_to_ap_note(mew_hash)` - Generate AP Note JSON from Mew
@@ -493,17 +518,24 @@ The gateway is completely generic - it just needs the subdomain to route to the 
 
 ```
 crates/
-└── activitypub_types/            # Shared AP types (used by BOTH S2S module AND zome)
+├── federation_types/             # Shared state types (BOTH S2S module AND zome, WASM+native)
+│   ├── Cargo.toml
+│   └── src/
+│       ├── lib.rs                # Re-exports
+│       ├── state.rs              # MewFederationState, FederationVisibility
+│       ├── references.rs         # RemoteActorRef, RemoteFollow, RemoteFollower
+│       └── config.rs             # InstanceConfig, InviteUrlParams
+│
+└── activitypub-s2s/              # AP protocol types + S2S logic (native-only)
     ├── Cargo.toml
     └── src/
-        ├── lib.rs                # Re-exports
+        ├── lib.rs                # Re-exports, constants
         ├── actor.rs              # APActor, APPublicKey, APImage
-        ├── object.rs             # APNote, APTag, APAttachment
-        ├── activity.rs           # APActivity enum (Create, Follow, Like, etc.)
-        ├── collections.rs        # OrderedCollection for outbox/followers
-        ├── webfinger.rs          # WebFinger JRD types
-        ├── signatures.rs         # SignatureHeaders, SignedRequest
-        └── federation.rs         # FederationState, FederationVisibility, DeliveryStatus
+        ├── note.rs               # APNote, APTag
+        ├── activity.rs           # APActivity flat struct, activity_type constants
+        ├── collections.rs        # OrderedCollection, OrderedCollectionPage
+        ├── webfinger.rs          # WebFingerResponse, WebFingerLink
+        └── signatures.rs         # SignatureHeaders, SignatureParseError
 
 dnas/mewsfeed/zomes/
 ├── integrity/activitypub/        # New integrity zome
@@ -591,25 +623,26 @@ crates/mews_types/src/lib.rs      # Add FederationVisibility to FeedMew
 
 ## Implementation Phases
 
-### Phase 1: Foundation (Week 1-2)
-1. Create `activitypub_types` shared crate
-2. Define AP types: Actor, Note, Activity variants
+### Phase 1: Foundation
+1. Create `federation_types` shared crate (DHT-safe, WASM+native)
+2. Create `activitypub-s2s` crate with AP protocol types (native-only)
 3. Define federation state types (shared between S2S module + zome)
-4. Define HTTP Signature types
+4. Define AP types: Actor, Note, Activity, WebFinger, Signatures
+5. Unit tests and Mastodon JSON fixture interoperability
 
-### Phase 2: ActivityPub Zome (Week 3-4)
+### Phase 2: Local Protocol I/O (S2S Module)
+Prove the S2S module works against real ActivityPub traffic before building the zome.
+1. WebFinger/Actor GET: Return correct JRD and Actor JSON
+2. Inbox POST: Accept a signed Follow or Create activity, validate HTTP signature, return 202
+3. Integration verification with `curl -H "Accept: application/activity+json"`
+
+### Phase 3: ActivityPub Zome
+Only after Phase 2 is verified. Creates the Holochain zome pair to manage federation state on the DHT.
 1. Create `activitypub_integrity` zome with entry/link types
 2. Implement validation rules
 3. Create `activitypub` coordinator zome
 4. Implement AP ↔ Mewsfeed mapping functions
 5. Implement federation state management
-
-### Phase 3: ActivityPub S2S Module (Week 5-6)
-1. Create `activitypub-s2s` crate for Tauri/Electron
-2. Implement HTTP client with reqwest
-3. Implement HTTP Signature sign/verify
-4. Implement WebFinger resolution
-5. Set up AppWebsocket connection to conductor
 
 ### Phase 4: Generic HTTP Gateway (Week 7-8)
 1. Scaffold `hc-http-gateway` (separate repo, reusable)
@@ -671,7 +704,8 @@ crates/mews_types/src/lib.rs      # Add FederationVisibility to FeedMew
 | File | Purpose |
 |------|---------|
 | `crates/mews_types/src/lib.rs` | Mew, Profile, FeedMew - types to map to AP |
-| `crates/activitypub_types/src/lib.rs` | **NEW** Shared AP types (S2S module + zome) |
+| `crates/federation_types/src/lib.rs` | **NEW** Shared state types (S2S module + zome) |
+| `crates/activitypub-s2s/src/lib.rs` | **NEW** AP protocol types (S2S module only) |
 | `dnas/mewsfeed/workdir/dna.yaml` | DNA manifest - add activitypub zomes |
 | `Cargo.toml` | Workspace config - add new crates |
 | `dnas/mewsfeed/zomes/integrity/mews/src/lib.rs` | Pattern for entry/link types |
@@ -699,7 +733,7 @@ The `hc-http-gateway` is protocol-agnostic and reusable:
 ## Security Considerations
 
 1. **HTTP Signatures**: Generated and verified in the **S2S module** (not zome or gateway)
-2. **Private keys**: Stored as private entries in zome; S2S module retrieves for signing
+2. **Private keys**: Stored in S2S module (OS keychain or encrypted local storage); private key never traverses the AppWebsocket boundary. Zome stores only the public key for serving to remote actors.
 3. **Rate limiting**: Gateway can implement basic IP-based limits
 4. **Content sanitization**: HTML-escape mew text before AP conversion (in zome mapping)
 5. **Author verification**: Only mew author can set federation state (zome validation)

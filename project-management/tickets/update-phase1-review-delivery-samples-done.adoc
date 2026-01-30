@@ -1,0 +1,34 @@
+= Update fedimew-phase1-review.md: Remove Stale DeliveryRecord Code Samples
+:severity: MEDIUM
+
+== Summary
+
+link:../fedimew-phase1-review.md[`fedimew-phase1-review.md`] (lines 296--305)
+includes `DeliveryRecord` and `DeliveryStatus` as code samples under
+"Deliverable 1.2: Federation State Types." The final implementation
+intentionally excluded delivery tracking from the shared `federation_types`
+crate.
+
+link:../0697A-federation_types-initialization-done.md[`0697A`] (line 34):
+
+> Delivery tracking is intentionally excluded from the DHT. Only _intent to
+> federate_ (via `visibility`) is recorded here.
+
+The actual
+link:../../crates/federation_types/src/state.rs[`state.rs`]
+contains `MewFederationState` and `FederationVisibility` only -- no
+`DeliveryRecord` or `DeliveryStatus`.
+
+== Affected Locations
+
+* link:../fedimew-phase1-review.md[`fedimew-phase1-review.md`] lines 296--305
+  (Deliverable 1.2 code samples)
+* Also line 28--29 in Prime Challenge #1, which mentions "Delivery status
+  tracking" as a zome responsibility
+
+== Acceptance Criteria
+
+* The `DeliveryRecord` and `DeliveryStatus` code samples are removed from the
+  Deliverable 1.2 section, or annotated as "deferred to S2S module."
+* Prime Challenge #1 is updated to reflect that delivery tracking lives in the
+  S2S module, not on the DHT.

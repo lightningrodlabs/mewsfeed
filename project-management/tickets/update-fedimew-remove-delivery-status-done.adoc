@@ -1,0 +1,28 @@
+= Update fedimew.md: Remove DeliveryStatus from Shared Types
+:severity: HIGH
+
+== Summary
+
+`fedimew.md` (lines 150--155) includes `delivery_status: DeliveryStatus` as a
+field of the shared `FederationState` struct. The implementation intentionally
+excluded delivery tracking from the DHT-shared types.
+
+link:../0697A-federation_types-initialization-done.md[`0697A`] (line 34) states:
+
+> Delivery tracking is intentionally excluded from the DHT. Only _intent to
+> federate_ (via `visibility`) is recorded here.
+
+The actual
+link:../../crates/federation_types/src/state.rs[`state.rs`]
+has `MewFederationState` with only `mew_hash`, `ap_uri`, and `visibility`.
+
+== Affected Locations
+
+* link:../fedimew.md[`fedimew.md`] lines 150--155 (`FederationState` struct)
+
+== Acceptance Criteria
+
+* The `FederationState` code sample in `fedimew.md` no longer includes
+  `delivery_status`.
+* A brief note explains that delivery tracking is handled by the S2S module
+  outside the DHT.

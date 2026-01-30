@@ -1,0 +1,34 @@
+= Update 0697B: Mark activitypub-s2s Crate as Completed
+:severity: HIGH
+
+== Summary
+
+link:../0697B-phase1-pwor.adoc[`0697B-phase1-pwor.adoc`] describes Steps 6
+(create `activitypub-s2s` crate) and Step 7 (unit tests and Mastodon JSON
+fixtures) as future work. However, the crate already exists at
+`crates/activitypub-s2s/` with all specified source files, test files, and
+fixtures:
+
+* `src/lib.rs`, `src/actor.rs`, `src/note.rs`, `src/activity.rs`,
+  `src/collections.rs`, `src/webfinger.rs`, `src/signatures.rs`
+* `tests/actor_tests.rs`, `tests/note_tests.rs`, `tests/activity_tests.rs`,
+  `tests/collections_tests.rs`, `tests/webfinger_tests.rs`,
+  `tests/signature_tests.rs`
+* `tests/fixtures/mastodon_actor.json`, `tests/fixtures/mastodon_note.json`,
+  `tests/fixtures/mastodon_webfinger.json`
+
+The crate's `Cargo.toml` matches the 0697B specification exactly.
+
+== Affected Locations
+
+* link:../0697B-phase1-pwor.adoc[`0697B-phase1-pwor.adoc`] abstract, sections
+  "Step 6" and "Step 7"
+
+== Acceptance Criteria
+
+* Steps 6 and 7 are marked as completed in 0697B, or a new completion document
+  (e.g., `0697C`) is created.
+* The abstract's progress percentage is updated (Phase 1 appears to be 100%
+  complete, not 70%).
+* Verification commands in the "Verification of Work" section are confirmed to
+  pass.

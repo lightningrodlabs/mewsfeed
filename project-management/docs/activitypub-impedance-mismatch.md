@@ -366,7 +366,7 @@ Profile {
 - AP expects HTTP endpoints for actors
 - Trust model fundamentally different
 
-### 7. Content Addressing vs Location Addressing
+### 6. Content Addressing vs Location Addressing
 
 **ActivityPub:** Content identified by URL (location-based)
 **Holochain:** Content identified by hash (content-addressed)
@@ -378,7 +378,7 @@ Profile {
 - ActivityPub zome maintains bidirectional ID mapping, including time stamp of record, disregarding inconsistencies
 - UI must expose URLs of Fediverse posts, which may be opened in a browser
 
-### 8. Moderation and Blocking
+### 7. Moderation and Blocking
 
 **ActivityPub:**
 - Server-level blocks (defederation)
@@ -445,11 +445,11 @@ Profile {
 
 ### Short-term (MVP Bridge)
 
-2. **Content:** Bridge `Original` mews as public `Note` activities
-3. **Interactions:** Support Like, Announce, Reply in both directions
-4. **Follows:** Auto-accept follows; document limitation
-5. **Visibility:** All bridged content is public
-6. **Updates:** Ignore incoming `Update` activities with warning
+1. **Content:** Bridge `Original` mews as public `Note` activities
+2. **Interactions:** Support Like, Announce, Reply in both directions
+3. **Follows:** Auto-accept follows; document limitation
+4. **Visibility:** All bridged content is public
+5. **Updates:** Ignore incoming `Update` activities with warning
 
 ### Medium-term Enhancements
 
@@ -460,21 +460,21 @@ Profile {
 
 ### Long-term Considerations
 
-3. **Moderation:** Develop community moderation patterns for Holochain
-4. **Real-time:** utilize _unified push_ for notification
+1. **Moderation:** Develop community moderation patterns for Holochain
+2. **Real-time:** utilize _unified push_ for notification
 
 ### Bridge Architecture Implications
 
 The S2S module must:
 1. **Poll Holochain** for new mews, likes, follows
-5. **Convert formats** bidirectionally
-6. **Respect rate limits** on AP servers
-7. **Handle errors** gracefully (unreachable servers, etc.)
+2. **Convert formats** bidirectionally
+3. **Respect rate limits** on AP servers
+4. **Handle errors** gracefully (unreachable servers, etc.)
 
 The ActivityPub zome must:
-2. **Maintain state** mapping ActionHashes ↔ AP URIs
-3. **Track followers** to know where to deliver activities
-4. **Handle inbox** for incoming AP activities
+1. **Maintain state** mapping ActionHashes ↔ AP URIs
+2. **Track followers** to know where to deliver activities
+3. **Handle inbox** for incoming AP activities
 
 ---
 

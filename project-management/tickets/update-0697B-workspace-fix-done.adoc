@@ -1,0 +1,30 @@
+= Update 0697B: Mark Workspace Fix as Completed
+:severity: HIGH
+
+== Summary
+
+link:../0697B-phase1-pwor.adoc[`0697B-phase1-pwor.adoc`] (lines 14--16) lists
+a workspace fix as remaining work:
+
+> the root `Cargo.toml` is missing `[workspace.dependencies.federation_types]`
+
+This contradicts link:../0697A-federation_types-initialization-done.md[`0697A`]
+(line 23), which reports this entry was already added. The actual
+link:../../Cargo.toml[`Cargo.toml`] (lines 61--62) confirms it exists:
+
+[source,toml]
+----
+[workspace.dependencies.federation_types]
+path = "crates/federation_types"
+----
+
+== Affected Locations
+
+* link:../0697B-phase1-pwor.adoc[`0697B-phase1-pwor.adoc`] section
+  "Workspace Fix" and abstract bullet 1
+
+== Acceptance Criteria
+
+* The workspace fix item in 0697B is marked as completed, or removed from the
+  "remaining work" list.
+* The abstract's percentage and remaining item count are updated.

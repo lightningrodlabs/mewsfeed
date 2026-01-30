@@ -1,0 +1,33 @@
+= Update fedimew.md: Correct FederationState Field Names and Types
+:severity: MEDIUM
+
+== Summary
+
+link:../fedimew.md[`fedimew.md`] (lines 150--155) shows:
+
+[source,rust]
+----
+pub struct FederationState {
+    pub mew_hash: String,
+    pub ap_id: Option<String>,
+    pub visibility: FederationVisibility,
+    pub delivery_status: DeliveryStatus,
+}
+----
+
+The actual implementation at
+link:../../crates/federation_types/src/state.rs[`state.rs`]
+uses:
+
+* `mew_hash: ActionHash` (not `String`)
+* `ap_uri: Option<String>` (not `ap_id`)
+* No `delivery_status` field (covered by separate ticket)
+
+== Affected Locations
+
+* link:../fedimew.md[`fedimew.md`] lines 150--155
+
+== Acceptance Criteria
+
+* Field types match the actual implementation: `ActionHash` for `mew_hash`,
+  `ap_uri` instead of `ap_id`.

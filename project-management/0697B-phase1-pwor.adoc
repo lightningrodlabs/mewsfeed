@@ -1,0 +1,286 @@
+= 0697B: Phase 1 Completion -- Plan of Work Remaining
+:toc: macro
+:toc-title: Contents
+:sectnums:
+
+toc::[]
+
+== Abstract
+
+Phase 1 ("Foundation: Types + Unit Tests") of FediMew is *100% complete*.
+Steps 1-5 delivered the `federation_types` shared crate (13 unit tests, dual WASM/native compilation).
+The remaining items have all been completed:
+
+* *Workspace fix* -- [line-through]#the root `Cargo.toml` is missing
+  `[workspace.dependencies.federation_types]`#. ✓ *Done* -- the entry exists in
+  link:../Cargo.toml[`Cargo.toml`] (confirmed by
+  link:0697A-federation_types-initialization-done.md[0697A]).
+* *Step 6* -- ✓ *Done* -- the `activitypub-s2s` crate exists at
+  link:../crates/activitypub-s2s/[`crates/activitypub-s2s/`] with all specified
+  source files (`APActor`, `APNote`, `APActivity`, `OrderedCollection`,
+  `WebFingerResponse`, `SignatureHeaders`). Native-only (no WASM, no `hdk`).
+* *Step 7* -- ✓ *Done* -- unit tests (~25) and Mastodon JSON fixtures
+  (`mastodon_actor.json`, `mastodon_note.json`, `mastodon_webfinger.json`)
+  verifying serialization roundtrips and real-world interoperability are in place.
+
+Phase 1 is complete. Phase 2 (Local Protocol I/O) can begin.
+
+== Workspace Fix ✓
+
+*Completed.* The root link:../Cargo.toml[`Cargo.toml`] already contains:
+
+[source,toml]
+----
+[workspace.dependencies.federation_types]
+path = "crates/federation_types"
+----
+
+This follows the existing pattern (`mews_types`, `follows_types`, etc.) and is
+required for the Phase 2 zome to declare `federation_types = { workspace = true }`.
+
+== Step 6: `activitypub-s2s` Crate ✓
+
+=== File Tree
+
+----
+crates/activitypub-s2s/
++-- Cargo.toml
++-- src/
+|   +-- lib.rs            (module re-exports, AS_CONTEXT / SECURITY_CONTEXT / AS_PUBLIC constants)
+|   +-- actor.rs          (APActor, APPublicKey, APImage)
+|   +-- note.rs           (APNote, APTag)
+|   +-- activity.rs       (APActivity struct, activity_type constants module)
+|   +-- collections.rs    (OrderedCollection, OrderedCollectionPage)
+|   +-- webfinger.rs      (WebFingerResponse, WebFingerLink)
+|   +-- signatures.rs     (SignatureHeaders, SignatureParseError, parse/format helpers)
++-- tests/
+    +-- fixtures/
+    |   +-- mastodon_actor.json
+    |   +-- mastodon_note.json
+    |   +-- mastodon_webfinger.json
+    +-- actor_tests.rs
+    +-- note_tests.rs
+    +-- activity_tests.rs
+    +-- collections_tests.rs
+    +-- webfinger_tests.rs
+    +-- signature_tests.rs
+----
+
+=== Cargo.toml
+
+[source,toml]
+----
+[package]
+name = "activitypub-s2s"
+version = "0.0.1"
+edition = "2021"
+description = "ActivityPub S2S protocol types for MewsFeed federation"
+
+[lib]
+name = "activitypub_s2s"
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_json = "1"
+----
+
+No `hdk`, no `holochain_serialized_bytes`, no `crate-type = ["cdylib", "rlib"]`.
+This crate runs natively in Tauri/Electron only.
+
+=== Key Design Decisions
+
+JSON-LD field mapping::
+  `@context` -> `#[serde(rename = "@context")] pub context: serde_json::Value` +
+  `type` -> `#[serde(rename = "type")] pub actor_type: String` (or `note_type`, etc.)
+
+`serde_json::Value` for `@context`::
+  Mastodon emits `@context` as either a plain string or an array with inline
+  extension objects. Using `Value` handles both without custom deserializers.
+
+Flat `APActivity` struct (not a Rust enum)::
+  Real AP JSON uses a `"type"` discriminant with a polymorphic `"object"` field
+  (sometimes a string URI, sometimes a nested object, sometimes an array).
+  A flat struct with `object: serde_json::Value` avoids fragile
+  `#[serde(untagged)]` enum issues. Type-safe constructors/accessors come in Phase 3.
+
+All structs use `#[serde(rename_all = "camelCase")]`::
+  ActivityPub JSON uses camelCase field names.
+
+Optional fields use `#[serde(skip_serializing_if = "...")]`::
+  Omits `null` fields from serialized output, matching Mastodon's behavior.
+
+=== Types Summary
+
+[cols="1,3"]
+|===
+| File | Types
+
+| `actor.rs`
+| `APActor` (id, type, preferredUsername, name, summary, inbox, outbox,
+  followers, following, publicKey, icon, url, manuallyApprovesFollowers,
+  discoverable), `APPublicKey` (id, owner, publicKeyPem),
+  `APImage` (type, url, mediaType)
+
+| `note.rs`
+| `APNote` (id, type, attributedTo, content, published, inReplyTo, to, cc,
+  tag, sensitive, conversation, url), `APTag` (type, href, name)
+
+| `activity.rs`
+| `APActivity` (id, type, actor, object: Value, to, cc, published),
+  `activity_type` module with constants: `CREATE`, `FOLLOW`, `ACCEPT`,
+  `REJECT`, `LIKE`, `ANNOUNCE`, `UNDO`, `DELETE`
+
+| `collections.rs`
+| `OrderedCollection` (id, type, totalItems, first, last),
+  `OrderedCollectionPage` (id, type, partOf, orderedItems, next, prev)
+
+| `webfinger.rs`
+| `WebFingerResponse` (subject, aliases, links),
+  `WebFingerLink` (rel, type, href, template, properties)
+
+| `signatures.rs`
+| `SignatureHeaders` (keyId, algorithm, headers, signature) with
+  `parse(header_str)` and `to_header_string()` methods,
+  `SignatureParseError` enum
+|===
+
+== Step 7: Tests ✓
+
+=== Test Fixtures
+
+Three JSON files based on real Mastodon 4.x output:
+
+`mastodon_actor.json`::
+  Full Actor/Person with array `@context` (including Mastodon extension
+  vocabulary), nested `publicKey`, `icon`, discoverable flag.
+
+`mastodon_note.json`::
+  Note with hashtag + mention tags, OStatus conversation URI, HTML content,
+  public addressing (`to: as:Public`).
+
+`mastodon_webfinger.json`::
+  WebFinger JRD with `acct:` subject, profile-page link, self link
+  (`application/activity+json`), and OStatus subscribe template.
+
+=== Test Summary (~25 tests)
+
+[cols="1,1,3"]
+|===
+| File | Count | Coverage
+
+| link:../crates/activitypub-s2s/tests/actor_tests.rs[`actor_tests.rs`] | 3
+| Parse Mastodon fixture, serialization roundtrip, verify camelCase field names
+
+| link:../crates/activitypub-s2s/tests/note_tests.rs[`note_tests.rs`] | 3
+| Parse Mastodon fixture, serialization roundtrip, verify field names + tags
+
+| link:../crates/activitypub-s2s/tests/activity_tests.rs[`activity_tests.rs`] | 7
+| Create (with Note object), Follow (string object), Accept (nested object),
+  Like, Undo (wrapping Like), Announce, Delete
+
+| link:../crates/activitypub-s2s/tests/collections_tests.rs[`collections_tests.rs`] | 2
+| OrderedCollection roundtrip with totalItems, OrderedCollectionPage roundtrip
+
+| link:../crates/activitypub-s2s/tests/webfinger_tests.rs[`webfinger_tests.rs`] | 3
+| Parse Mastodon fixture (self link, subscribe template), MewsFeed roundtrip,
+  empty-aliases omission
+
+| link:../crates/activitypub-s2s/tests/signature_tests.rs[`signature_tests.rs`] | 7
+| Parse header, roundtrip, missing keyId/headers/signature errors, default
+  algorithm, JSON roundtrip with camelCase
+|===
+
+== Verification of Work
+
+These commands should *fail now* (before implementation) and *succeed after*.
+Run from the repository root inside `nix develop`.
+
+[source,bash]
+----
+#!/usr/bin/env bash
+set -euo pipefail
+if [[ ! "$(basename "$PWD")" =~ [mM]ews[fF]eed ]]
+then
+  echo "these tests need to be run in the MewsFeed source repository" >&2
+  exit 1
+fi
+
+echo "=== 1. Workspace dependency check ==="
+grep -A1 '\[workspace.dependencies.federation_types\]' Cargo.toml
+
+echo "=== 2. Build activitypub-s2s ==="
+cargo build -p activitypub-s2s
+
+echo "=== 3. Test activitypub-s2s ==="
+cargo test -p activitypub-s2s
+
+echo "=== 4. Verify no hdk dependency ==="
+if cargo tree -p activitypub-s2s 2>&1 | grep -c hdk
+then echo "FAIL: activitypub-s2s depends on hdk ($count occurrences)"
+else echo "OK: no hdk dependency"
+fi
+
+echo "=== 5. Format check ==="
+cargo fmt -p activitypub-s2s -- --check
+
+echo "=== 6. Clippy ==="
+cargo clippy -p activitypub-s2s -- -D warnings
+
+echo "=== 7. Existing federation_types tests still pass ==="
+cargo test -p federation_types
+
+echo "=== 8. Full workspace check ==="
+cargo check --workspace
+
+echo "=== ALL CHECKS PASSED ==="
+----
+
+== What's Next: Phase 2 (Local Protocol I/O)
+
+Phase 2 focuses on making the `activitypub-s2s` module responsive to external 
+network requests (via `curl` or local test runners) without involving the 
+Holochain DHT yet. Testing from here on out involves the full ActivityPub 
+protocol.
+
+=== Step 8: Responsive S2S (Native)
+
+1. **WebFinger/Actor GET**: Implement ActivityPub endpoints that return the correct JRD and Actor JSON when queried.
+2. **Inbox POST**: Implement a native endpoint that accepts a signed `Follow` 
+   or `Create` activity, validates the HTTP signature, and returns 202 Accepted.
+3. **Integration Verification**: Successfully fetch an actor profile using 
+   `curl -H "Accept: application/activity+json"`.
+
+Testing cycle for this phase: protocol tests should fail first, then be 
+implemented correctly using stateless mocks or hardcoded responses.
+
+=== Phase 3: ActivityPub Zome
+
+Only after Phase 2 is verified will we move to Phase 3, which creates the 
+Holochain zome pair to manage federation state on the DHT.
+
+Integrity zome (`dnas/mewsfeed/zomes/integrity/activitypub/`)::
+  Entry types: `FederationConfig`, `MewFederationState`, `RemoteActorRef`,
+  `RemoteFollow`, `RemoteFollower`, `RemoteInteraction`. +
+  Link types: `AgentToFederationConfig`, `MewToFederationState`,
+  `AgentToRemoteFollows`, `AgentToRemoteFollowers`,
+  `MewToRemoteInteractions`, `ActivityIdToMew`. +
+  Validation: only the mew author may set federation state.
+
+Coordinator zome (`dnas/mewsfeed/zomes/coordinator/activitypub/`)::
+  Callable functions invoked by the S2S module via AppWebsocket:
+  `enable_federation`, `federate_mew`, `record_delivery`,
+  `cache_remote_actor`, `create_remote_follow`, `confirm_remote_follow`,
+  `process_like`, `process_announce`, `process_mention`. +
+  Emits signals for UI: `NewRemoteFollower`, `RemoteLike`,
+  `RemoteMention`, `FederationDelivered`.
+
+DNA manifest update::
+  Add activitypub integrity and coordinator zomes to
+  `dnas/mewsfeed/workdir/dna.yaml`.
+
+Integration tests::
+  tests for roundtrips (create config, federate a mew,
+  record remote follow, process remote interaction).
+
+Phase 3 (ActivityPub Zome) depends on the workspace fix (now complete) so the
+zome's `Cargo.toml` can declare `federation_types = { workspace = true }`.

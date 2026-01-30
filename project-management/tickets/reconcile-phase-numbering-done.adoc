@@ -1,0 +1,30 @@
+= Reconcile Phase Numbering Between fedimew.md and 0697B
+:severity: HIGH
+
+== Summary
+
+The phase ordering was deliberately rearranged between the original plan and
+the plan of work remaining, but the original plan was not updated:
+
+* link:../fedimew.md[`fedimew.md`]: Phase 2 = ActivityPub Zome, Phase 3 =
+  ActivityPub S2S Module
+* link:../0697B-phase1-pwor.adoc[`0697B`]: Phase 2 = Local Protocol I/O
+  (S2S module first, no DHT), Phase 3 = ActivityPub Zome
+
+The 0697B ordering is the intended sequence: prove the S2S module works
+against real ActivityPub traffic before building the zome. This is a
+deliberate and beneficial change but creates confusion for anyone reading
+`fedimew.md` as the source of truth.
+
+== Affected Locations
+
+* link:../fedimew.md[`fedimew.md`] lines 593--638 (Implementation Phases)
+* link:../0697B-phase1-pwor.adoc[`0697B-phase1-pwor.adoc`] lines 234--283
+  (Phase 2 and Phase 3 descriptions)
+
+== Acceptance Criteria
+
+* `fedimew.md` phase numbering matches the revised ordering in 0697B, or
+  `fedimew.md` explicitly defers to 0697B for the updated sequencing.
+* The rationale for the reorder (prove S2S before building the zome) is
+  documented.

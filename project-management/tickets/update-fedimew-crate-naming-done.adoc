@@ -1,0 +1,26 @@
+= Update fedimew.md: Replace activitypub_types with Actual Crate Names
+:severity: HIGH
+
+== Summary
+
+`fedimew.md` references a shared crate called `activitypub_types` at
+`crates/activitypub_types/` throughout the document. This crate was never
+created. The phase1-review revised the architecture to split into two crates:
+
+* `federation_types` -- DHT-safe shared state types (exists at `crates/federation_types/`)
+* `activitypub-s2s` -- AP protocol types, native-only (exists at `crates/activitypub-s2s/`)
+
+== Affected Locations
+
+* link:../fedimew.md[`fedimew.md`] lines 91--104 (shared crate file tree)
+* link:../fedimew.md[`fedimew.md`] lines 495--506 (file changes summary)
+* link:../fedimew.md[`fedimew.md`] line 674 (critical files reference)
+* Architecture diagram (line 47--51) labels the shared crate `activitypub_types`
+
+== Acceptance Criteria
+
+* All references to `activitypub_types` in `fedimew.md` are replaced with the
+  correct crate names (`federation_types` and/or `activitypub-s2s`).
+* The file tree, architecture diagram, and critical files table reflect the
+  actual two-crate split.
+* No new `activitypub_types` references are introduced.

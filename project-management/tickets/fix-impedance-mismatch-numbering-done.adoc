@@ -1,0 +1,30 @@
+= Fix Numbering Gaps in activitypub-impedance-mismatch.md
+:severity: LOW
+
+== Summary
+
+link:../docs/activitypub-impedance-mismatch.md[`activitypub-impedance-mismatch.md`]
+has several numbering gaps where items were apparently removed without
+renumbering the remaining entries.
+
+== Affected Locations
+
+Fundamental Challenges::
+  Sections jump from "#5. Server vs Peer Identity" to "#7. Content Addressing
+  vs Location Addressing" -- there is no #6.
+
+Short-term (MVP Bridge)::
+  Numbered list starts at 2 (no item 1).
+
+Long-term Considerations::
+  Numbered list starts at 3 (no items 1--2).
+
+Bridge Architecture Implications -- S2S module list::
+  Jumps from 1 to 5 (no items 2--4).
+
+Bridge Architecture Implications -- ActivityPub zome list::
+  Starts at 2 (no item 1).
+
+== Acceptance Criteria
+
+* All numbered lists are renumbered sequentially starting from 1.

@@ -1,0 +1,43 @@
+= Fix 0697B Verification Script Bash Errors
+:severity: MEDIUM
+
+== Summary
+
+The verification script in
+link:../0697B-phase1-pwor.adoc[`0697B-phase1-pwor.adoc`] (line 200) has bash
+syntax errors:
+
+[source,bash]
+----
+if [[ ! "$(basename "$PWD") ~= "[mM]ews[fF]eed" ]]
+then echo these tests need be run in the MewsFeed source repository >&2
+fi
+----
+
+Issues:
+
+1. The operator is `~=` but should be `=~` (bash regex match).
+2. The regex pattern is inside quotes on the right side of `=~`, which makes
+   bash treat it as a literal string, not a regex. It should be unquoted:
+   `=~ [mM]ews[fF]eed`.
+
+== Corrected Code
+
+[source,bash]
+----
+if [[ ! "$(basename "$PWD")" =~ [mM]ews[fF]eed ]]
+then
+  echo "these tests need to be run in the MewsFeed source repository" >&2
+  exit 1
+fi
+----
+
+== Affected Locations
+
+* link:../0697B-phase1-pwor.adoc[`0697B-phase1-pwor.adoc`] line 200
+
+== Acceptance Criteria
+
+* The regex operator is corrected to `=~`.
+* The regex pattern is unquoted.
+* The guard exits the script on failure.

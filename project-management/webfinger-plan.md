@@ -102,8 +102,8 @@ WebFinger is implemented across three components per the fedimew architecture:
 |------------------------------------------------------------
 │                                                                  │
 │  ┌──────────────────────┐                                       │
-│  │ activitypub_types    │  Shared types (WebFingerRequest,     │
-│  │ crate                │  WebFingerResponse, JrdLink)          │
+│  │ activitypub-s2s      │  Protocol types (WebFingerResponse,  │
+│  │ crate                │  WebFingerLink)                       │
 │  └──────────────────────┘                                       │
 │            ▲                                                     │
 │            │ imports                                             │
@@ -129,7 +129,7 @@ WebFinger is implemented across three components per the fedimew architecture:
 
 ## Implementation Components
 
-### 1. Shared Types (`crates/activitypub_types/src/webfinger.rs`)
+### 1. Protocol Types (`crates/activitypub-s2s/src/webfinger.rs`)
 
 ```rust
 use serde::{Deserialize, Serialize};
@@ -169,12 +169,12 @@ pub struct WebFingerResponse {
     pub aliases: Vec<String>,
 
     /// Links to related resources
-    pub links: Vec<JrdLink>,
+    pub links: Vec<WebFingerLink>,
 }
 
 /// A link in the JRD response
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct JrdLink {
+pub struct WebFingerLink {
     /// Relation type (e.g., "self", "http://webfinger.net/rel/profile-page")
     pub rel: String,
 
@@ -189,6 +189,10 @@ pub struct JrdLink {
     /// URI template (for subscribe links)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub template: Option<String>,
+
+    /// Additional properties
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub properties: HashMap<String, Option<String>>,
 }
 
 /// Well-known relation types
@@ -221,7 +225,7 @@ pub enum WebFingerError {
 
 ```rust
 use hdk::prelude::*;
-use activitypub_types::webfinger::*;
+use activitypub_s2s::webfinger::*;
 
 /// Input for WebFinger lookup
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -269,21 +273,21 @@ pub fn get_webfinger_response(input: GetWebFingerInput) -> ExternResult<WebFinge
         ],
         links: vec![
             // ActivityPub Actor (required for federation)
-            JrdLink {
+            WebFingerLink {
                 rel: rel::SELF.to_string(),
                 link_type: Some(mime::ACTIVITY_JSON.to_string()),
                 href: Some(actor_url),
                 template: None,
             },
             // Human-readable profile page
-            JrdLink {
+            WebFingerLink {
                 rel: rel::PROFILE_PAGE.to_string(),
                 link_type: Some(mime::HTML.to_string()),
                 href: Some(profile_url),
                 template: None,
             },
             // OStatus subscribe (for remote follow)
-            JrdLink {
+            WebFingerLink {
                 rel: rel::SUBSCRIBE.to_string(),
                 link_type: None,
                 href: None,
@@ -328,7 +332,7 @@ pub enum LinkTypes {
 ### 3. S2S Module HTTP Handler (`crates/activitypub-s2s/src/webfinger.rs`)
 
 ```rust
-use activitypub_types::webfinger::*;
+use activitypub_s2s::webfinger::*;
 use crate::conductor::ConductorClient;
 use crate::error::S2SError;
 
@@ -564,12 +568,12 @@ pub async fn route_request(
 
 ## Implementation Steps
 
-### Phase 1: Types (in `activitypub_types` crate)
+### Phase 1: Types (in `activitypub-s2s` crate)
 
 1. **Create `webfinger.rs` module**
    - Define `WebFingerQuery` for parsing incoming requests
    - Define `WebFingerResponse` (JRD format)
-   - Define `JrdLink` struct
+   - Define `WebFingerLink` struct
    - Add constants for well-known relation types and MIME types
    - Add `WebFingerError` enum
 
@@ -625,7 +629,7 @@ pub async fn route_request(
 
 ### Unit Tests
 
-**Types (`activitypub_types/src/webfinger.rs`):**
+**Types (`activitypub-s2s/src/webfinger.rs`):**
 ```rust
 #[cfg(test)]
 mod tests {
@@ -666,7 +670,7 @@ mod tests {
             subject: "acct:alice@example.com".to_string(),
             aliases: vec!["https://example.com/users/alice".to_string()],
             links: vec![
-                JrdLink {
+                WebFingerLink {
                     rel: rel::SELF.to_string(),
                     link_type: Some(mime::ACTIVITY_JSON.to_string()),
                     href: Some("https://example.com/users/alice".to_string()),
@@ -882,7 +886,7 @@ fn validate_username(username: &str) -> Result<String, String> {
 
 | File | Purpose |
 |------|---------|
-| `crates/activitypub_types/src/webfinger.rs` | Shared types: `WebFingerQuery`, `WebFingerResponse`, `JrdLink` |
+| `crates/activitypub-s2s/src/webfinger.rs` | Protocol types: `WebFingerResponse`, `WebFingerLink` |
 | `dnas/mewsfeed/zomes/integrity/activitypub/src/lib.rs` | `UsernameToAgent` link type |
 | `dnas/mewsfeed/zomes/coordinator/activitypub/src/webfinger.rs` | `get_webfinger_response` zome function |
 | `dnas/mewsfeed/zomes/coordinator/activitypub/src/config.rs` | `enable_federation` with username registration |
@@ -897,16 +901,18 @@ fn validate_username(username: &str) -> Result<String, String> {
 ### Rust Crates
 
 ```toml
-# In activitypub_types/Cargo.toml
-[dependencies]
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-
 # In activitypub-s2s/Cargo.toml
+[package]
+name = "activitypub-s2s"
+version = "0.0.1"
+edition = "2021"
+
+[lib]
+name = "activitypub_s2s"
+
 [dependencies]
-activitypub_types = { path = "../activitypub_types" }
-urlencoding = "2.1"
-# ... other deps from fedimew plan
+serde = { workspace = true, features = ["derive"] }
+serde_json = "1"
 ```
 
 ---

@@ -1,0 +1,26 @@
+= Update fedimew.md: APActivity Enum Replaced by Flat Struct
+:severity: HIGH
+
+== Summary
+
+`fedimew.md` (lines 139--147) defines `APActivity` as a Rust enum with typed
+variants (`Create`, `Follow`, `Accept`, etc.). This design was explicitly
+rejected in link:../0697B-phase1-pwor.adoc[`0697B-phase1-pwor.adoc`] (lines
+98--102), which chose a flat struct with `object: serde_json::Value` to
+handle the polymorphic nature of real ActivityPub JSON.
+
+The actual implementation at
+link:../../crates/activitypub-s2s/src/activity.rs[`crates/activitypub-s2s/src/activity.rs`]
+uses the flat struct design.
+
+== Affected Locations
+
+* link:../fedimew.md[`fedimew.md`] lines 139--147 (`APActivity` enum definition)
+
+== Acceptance Criteria
+
+* The `APActivity` code sample in `fedimew.md` is updated to show the flat
+  struct design with `object: serde_json::Value` and the `activity_type`
+  constants module.
+* A note is added explaining the rationale (matching real AP wire format,
+  avoiding `#[serde(untagged)]` fragility).

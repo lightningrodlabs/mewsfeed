@@ -1,0 +1,27 @@
+= Resolve Key Management Contradiction Between fedimew.md and Phase1 Review
+:severity: HIGH
+
+== Summary
+
+Two documents describe opposite designs for HTTP Signature key management:
+
+link:../fedimew.md[`fedimew.md`] (lines 180, 207)::
+  Private keys are stored as entries in the zome:
+  * `FederationPrivateKey` -- Private entry for signing key
+  * `store_keypair(public_key_pem, encrypted_private_key)` -- Store signing keys
+
+link:../fedimew-phase1-review.md[`fedimew-phase1-review.md`] (lines 72--84)::
+  Keypair lives entirely within the S2S module:
+  * "Private key never traverses the AppWebsocket boundary"
+  * "S2S module generates and stores its own keypair (e.g., in OS keychain or
+    encrypted local storage)"
+  * "Zome only stores the public key (for serving to remote actors)"
+
+These are mutually exclusive designs. One must be chosen and the other document
+updated.
+
+== Acceptance Criteria
+
+* A single key management design is documented consistently across both files.
+* The rejected design is removed or marked as superseded.
+* The rationale for the chosen design is documented.

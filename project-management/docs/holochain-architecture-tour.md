@@ -810,7 +810,7 @@ pub enum NotificationType {
 
 ### Statistics
 
-- **7 integrity zomes** + **7 coordinator zomes**
+- **5 integrity zomes** + **6 coordinator zomes** (the `ping` coordinator has no integrity zome)
 - **9+ link types** across zomes
 - **3 pagination strategies**
 - **9 notification types** reconstructed from link events

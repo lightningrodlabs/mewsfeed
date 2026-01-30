@@ -25,7 +25,7 @@ This document reviews the ActivityPub S2S integration plan (`project-management/
 
 **Zome Responsibilities (state that requires DHT consensus):**
 - Federation visibility per mew (Public, Unlisted, FollowersOnly, etc.)
-- Delivery status tracking (which inboxes received which content)
+- ~~Delivery status tracking~~ (deferred to S2S module; not stored on DHT)
 - Remote actor references (not full AP Actor JSON, just IDs and minimal metadata)
 - Remote follow/follower relationships
 - Mapping between local ActionHashes and AP URIs
@@ -288,21 +288,10 @@ pub enum FederationVisibility {
     HolochainOnly,       // Not federated
 }
 
-/// Delivery tracking (S2S module reports back to zome)
-#[derive(Serialize, Deserialize, SerializedBytes, Debug, Clone)]
-pub struct DeliveryRecord {
-    pub mew_hash: ActionHash,
-    pub inbox_uri: String,
-    pub status: DeliveryStatus,
-    pub last_attempt: Timestamp,
-}
-
-#[derive(Serialize, Deserialize, SerializedBytes, Debug, Clone, PartialEq)]
-pub enum DeliveryStatus {
-    Pending,
-    Delivered,
-    Failed { error: String, attempts: u32 },
-}
+// NOTE: Delivery tracking (DeliveryRecord, DeliveryStatus) was intentionally
+// excluded from the DHT-shared types. Only _intent to federate_ (via
+// `visibility`) is recorded here. Delivery attempts/results are tracked
+// by the S2S module locally.
 ```
 
 ---

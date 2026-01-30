@@ -1,0 +1,28 @@
+= Fix Zome Count in holochain-architecture-tour.md
+:severity: LOW
+
+== Summary
+
+link:../docs/holochain-architecture-tour.md[`holochain-architecture-tour.md`]
+(line 812) states:
+
+> 7 integrity zomes + 7 coordinator zomes
+
+The actual count per the workspace `Cargo.toml` and `CLAUDE.md` is:
+
+* 5 integrity zomes: `mews_integrity`, `profiles_integrity`,
+  `follows_integrity`, `likes_integrity`, `agent_pins_integrity`
+* 6 coordinator zomes: `mews`, `profiles`, `follows`, `likes`, `agent_pins`,
+  `ping`
+
+The `ping` coordinator zome has no corresponding integrity zome. The count
+"7 + 7" does not match any current or planned configuration.
+
+== Affected Locations
+
+* link:../docs/holochain-architecture-tour.md[`holochain-architecture-tour.md`]
+  line 812, under "Statistics"
+
+== Acceptance Criteria
+
+* The zome count is corrected to match the actual workspace.
