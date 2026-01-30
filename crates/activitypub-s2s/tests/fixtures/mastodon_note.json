@@ -1,0 +1,41 @@
+{
+  "@context": [
+    "https://www.w3.org/ns/activitystreams",
+    {
+      "ostatus": "http://ostatus.org#",
+      "atomUri": "ostatus:atomUri",
+      "inReplyToAtomUri": "ostatus:inReplyToAtomUri",
+      "conversation": "ostatus:conversation",
+      "sensitive": "as:sensitive",
+      "toot": "http://joinmastodon.org/ns#",
+      "Hashtag": "as:Hashtag"
+    }
+  ],
+  "id": "https://mastodon.social/users/Gargron/statuses/103270115826048975",
+  "type": "Note",
+  "inReplyTo": null,
+  "published": "2019-12-08T20:30:00Z",
+  "url": "https://mastodon.social/@Gargron/103270115826048975",
+  "attributedTo": "https://mastodon.social/users/Gargron",
+  "to": [
+    "https://www.w3.org/ns/activitystreams#Public"
+  ],
+  "cc": [
+    "https://mastodon.social/users/Gargron/followers"
+  ],
+  "sensitive": false,
+  "content": "<p>Hello from <a href=\"https://mastodon.social/tags/mastodon\" class=\"mention hashtag\">#<span>Mastodon</span></a>! <a href=\"https://mastodon.social/@alice\" class=\"u-url mention\">@<span>alice</span></a></p>",
+  "conversation": "tag:mastodon.social,2019-12-08:objectId=103270115826048975:objectType=Conversation",
+  "tag": [
+    {
+      "type": "Hashtag",
+      "href": "https://mastodon.social/tags/mastodon",
+      "name": "#Mastodon"
+    },
+    {
+      "type": "Mention",
+      "href": "https://mastodon.social/users/alice",
+      "name": "@alice@mastodon.social"
+    }
+  ]
+}
