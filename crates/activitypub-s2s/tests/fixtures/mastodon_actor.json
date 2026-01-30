@@ -1,0 +1,33 @@
+{
+  "@context": [
+    "https://www.w3.org/ns/activitystreams",
+    "https://w3id.org/security/v1",
+    {
+      "manuallyApprovesFollowers": "as:manuallyApprovesFollowers",
+      "toot": "http://joinmastodon.org/ns#",
+      "discoverable": "toot:discoverable"
+    }
+  ],
+  "id": "https://mastodon.social/users/Gargron",
+  "type": "Person",
+  "following": "https://mastodon.social/users/Gargron/following",
+  "followers": "https://mastodon.social/users/Gargron/followers",
+  "inbox": "https://mastodon.social/users/Gargron/inbox",
+  "outbox": "https://mastodon.social/users/Gargron/outbox",
+  "preferredUsername": "Gargron",
+  "name": "Eugen Rochko",
+  "summary": "<p>Founder and CEO of Mastodon</p>",
+  "url": "https://mastodon.social/@Gargron",
+  "manuallyApprovesFollowers": false,
+  "discoverable": true,
+  "publicKey": {
+    "id": "https://mastodon.social/users/Gargron#main-key",
+    "owner": "https://mastodon.social/users/Gargron",
+    "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAvXc4vkECU2/CeuSo1wtn\nFoim94Ole7OJSJoqm3K3sGrxkhJVFj+e4Bwfc4NaFOo/WZ9Oo0shHKRljCJsGvv\nG0GBgL+ZFQKiWy2D1yBd0JVxrO9Wjbo2KNh6MQnyfP5gK/5Fmhon7p+s2JWAIBB\nv/QYIIhtSfJrBkQNsIoS3tN63pPfYZe0UoOiCVWrJRKNPYQvSR8eLALBuYMqjJ6a\ndOkxiVClJnl5bXOaRICNFj2iLhPMkv1l9CSKOM/iIqdcgmwuR+lx0mRRHSGIHkri\n3a1+j9S4sf2HL7o23ORw7OPYQ8eFMxHgmuezVVF+9gXHxyBAhMqF+K0Ni8TBIEi5\nnwIDAQAB\n-----END PUBLIC KEY-----\n"
+  },
+  "icon": {
+    "type": "Image",
+    "mediaType": "image/jpeg",
+    "url": "https://files.mastodon.social/accounts/avatars/000/000/001/original/gargron.jpeg"
+  }
+}
