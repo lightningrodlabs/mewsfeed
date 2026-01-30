@@ -1,0 +1,1220 @@
+= 0697C: Phase 2 -- Localhost ActivityPub Networking
+:toc: macro
+:toc-title: Contents
+:sectnums:
+:plantuml-format: svg
+
+toc::[]
+
+== Abstract
+
+Phase 2 ("Local Protocol I/O") of FediMew builds on the type foundations
+delivered in Phase 1 (link:0697B-phase1-DONE.adoc[0697B], now 100% complete).
+
+The goal is to make the `activitypub-s2s` crate at
+link:../crates/activitypub-s2s/[`crates/activitypub-s2s/`] serve real
+ActivityPub HTTP endpoints on localhost, testable with `curl`, `openssl`,
+`jq`, and `socat` via bash scripts -- *without* involving the Holochain DHT.
+
+.Deliverables
+* An HTTP server (axum) exposing WebFinger, Actor, Inbox, and Outbox endpoints
+* RSA key generation, HTTP Signature signing and verification
+* An outbound HTTP client for activity delivery
+* A `FederationDataSource` trait abstracting the data layer (mock for Phase 2,
+  zome calls for Phase 3)
+* Bash test scripts exercising every protocol flow individually
+* An example binary (`localhost_server`) for manual exploration
+
+Phase 1 delivered 14 pure data types with serde serialization. Phase 2 adds
+networking, crypto, and HTTP handling to make them live on the wire.
+
+== Dependency Additions
+
+=== `crates/activitypub-s2s/Cargo.toml`
+
+[source,toml]
+----
+[package]
+name = "activitypub-s2s"
+version = "0.0.1"
+edition = "2021"
+description = "ActivityPub S2S protocol types and localhost server for MewsFeed federation"
+
+[lib]
+name = "activitypub_s2s"
+
+[dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_json = "1"
+
+# HTTP server + client
+axum = "0.7"
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.12", features = ["json"] }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["trace", "cors"] }
+http = "1"
+
+# Crypto for HTTP Signatures
+rsa = { version = "0.9", features = ["pkcs5", "pem"] }
+sha2 = "0.10"
+base64 = "0.22"
+rand = "0.8"
+
+# Utilities
+chrono = { version = "0.4", features = ["serde"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+async-trait = "0.1"
+thiserror = "1"
+----
+
+.Rationale for key choices
+[cols="1,3"]
+|===
+| axum | Built on tokio/hyper, same runtime as reqwest. Typed extractors produce
+  testable handler signatures. Actively maintained by the tokio team.
+
+| reqwest | Already specified in architecture docs (link:fedimew.md[`fedimew.md`]
+  line 67). Shares tokio runtime with axum.
+
+| rsa + sha2 + base64 | Pure-Rust RSA. No system OpenSSL or C compilation
+  needed. Natively handles PEM encoding for `publicKeyPem` in Actor JSON.
+  HTTP Signatures (draft-cavage) use RSA-SHA256: PKCS#1 v1.5 + SHA-256.
+|===
+
+No changes to the workspace root `Cargo.toml` are needed -- the `crates/*`
+glob already includes `activitypub-s2s`.
+
+== New Module Structure
+
+.File tree (new files marked with *)
+----
+crates/activitypub-s2s/
++-- Cargo.toml                  (MODIFIED)
++-- src/
+|   +-- lib.rs                  (MODIFIED -- add module declarations)
+|   +-- actor.rs                (existing, unchanged)
+|   +-- note.rs                 (existing, unchanged)
+|   +-- activity.rs             (existing, unchanged)
+|   +-- collections.rs          (existing, unchanged)
+|   +-- webfinger.rs            (existing, unchanged)
+|   +-- signatures.rs           (existing, unchanged)
+|   +-- error.rs              * (unified error type)
+|   +-- crypto.rs             * (RSA keygen, signing, verification, digest)
+|   +-- mock_data.rs          * (FederationDataSource trait + MockDataSource)
+|   +-- handlers.rs           * (axum handler functions for all endpoints)
+|   +-- server.rs             * (Router construction, server lifecycle)
+|   +-- client.rs             * (outbound HTTP client for activity delivery)
++-- examples/
+|   +-- localhost_server.rs   * (example binary for manual testing)
++-- tests/
+    +-- scripts/              * (bash test scripts)
+    |   +-- lib.sh              (shared helpers)
+    |   +-- 00-start-server.sh
+    |   +-- 01-webfinger.sh
+    |   +-- 02-actor-fetch.sh
+    |   +-- 03-outbox.sh
+    |   +-- 04-inbox-unsigned.sh
+    |   +-- 05-inbox-signed.sh
+    |   +-- 06-follow-flow.sh
+    |   +-- 07-create-note.sh
+    |   +-- 08-inbound-mention.sh
+    |   +-- 09-signature-verify.sh
+    |   +-- run-all.sh
+    |   +-- output/             (gitignored, test output files)
+    +-- (existing test files unchanged)
+----
+
+=== Module Specifications
+
+==== error.rs
+
+Unified error type using `thiserror`. Implements axum's `IntoResponse` to map
+errors to HTTP status codes directly from handler return types.
+
+[source,rust]
+----
+#[derive(Error, Debug)]
+pub enum S2SError {
+    BadRequest(String),       // -> 400
+    NotFound(String),         // -> 404
+    Unauthorized(String),     // -> 401
+    Internal(String),         // -> 500
+    Crypto(String),           // -> 500
+    HttpClient(reqwest::Error),
+    Json(serde_json::Error),
+    SignatureParse(SignatureParseError),
+}
+----
+
+==== crypto.rs
+
+RSA key management and HTTP Signature operations. This module has NO dependency
+on the HTTP server -- it is pure crypto logic.
+
+.Public API
+[source,rust]
+----
+pub fn generate_rsa_keypair() -> (RsaPrivateKey, RsaPublicKey);
+pub fn public_key_to_pem(key: &RsaPublicKey) -> String;
+pub fn build_signing_string(
+    method: &str, path: &str,
+    headers: &[(String, String)],
+    signed_headers: &[&str],
+) -> String;
+pub fn sign(signing_string: &str, private_key: &RsaPrivateKey) -> Result<String, S2SError>;
+pub fn verify(
+    signing_string: &str, signature_b64: &str, public_key_pem: &str,
+) -> Result<bool, S2SError>;
+pub fn compute_digest(body: &[u8]) -> String;  // "SHA-256=base64..."
+pub fn build_signature_header(
+    key_id: &str, signed_headers: &[&str], signature_b64: &str,
+) -> String;
+----
+
+Inline unit tests: sign/verify roundtrip, wrong-key rejection, digest of known
+input, signing string format.
+
+==== mock_data.rs
+
+Defines the `FederationDataSource` trait -- the clean seam between Phase 2
+mock data and Phase 3 zome integration.
+
+[source,rust]
+----
+#[async_trait]
+pub trait FederationDataSource: Send + Sync {
+    async fn get_actor(&self, username: &str) -> Result<Option<APActor>, S2SError>;
+    async fn get_outbox(&self, username: &str) -> Result<OrderedCollection, S2SError>;
+    async fn get_webfinger(
+        &self, username: &str, domain: &str,
+    ) -> Result<Option<WebFingerResponse>, S2SError>;
+    async fn process_inbox(
+        &self, username: &str, activity: APActivity,
+    ) -> Result<(), S2SError>;
+    async fn get_signing_key(
+        &self, username: &str,
+    ) -> Result<Option<rsa::RsaPrivateKey>, S2SError>;
+    async fn get_public_key_pem(
+        &self, username: &str,
+    ) -> Result<Option<String>, S2SError>;
+}
+----
+
+`MockDataSource` stores 2 users (`alice`, `bob`) with pre-generated RSA
+keypairs. `process_inbox` appends received activities to an `Arc<Mutex<Vec<APActivity>>>`
+for inspection by test scripts (exposed via a debug endpoint `GET /__debug/inbox/{username}`).
+
+==== handlers.rs
+
+Four axum handler functions, each receiving `FederationDataSource` via `State`:
+
+[cols="1,2,2"]
+|===
+| Handler | Route | Behavior
+
+| `webfinger_handler`
+| `GET /.well-known/webfinger`
+| Parse `resource` query param, validate acct URI, return JRD
+  (`application/jrd+json`)
+
+| `actor_handler`
+| `GET /users/{username}`
+| Check `Accept` header for `application/activity+json`, return Actor JSON
+
+| `inbox_handler`
+| `POST /users/{username}/inbox`
+| Parse `Signature` header, fetch sender's actor, verify HTTP Signature via
+  `crypto.rs`, parse body as `APActivity`, call `process_inbox()`, return 202
+
+| `outbox_handler`
+| `GET /users/{username}/outbox`
+| Return `OrderedCollection` JSON
+|===
+
+==== server.rs
+
+[source,rust]
+----
+pub struct ServerConfig {
+    pub port: u16,
+    pub domain: String,
+}
+
+pub fn build_router(
+    data_source: Arc<dyn FederationDataSource>,
+) -> Router;
+
+pub async fn start_server(
+    config: ServerConfig,
+) -> Result<(SocketAddr, JoinHandle<()>), S2SError>;
+----
+
+Routes `/.well-known/webfinger`, `/users/:username`, `/users/:username/inbox`,
+`/users/:username/outbox`. CORS layer via `tower-http`.
+
+==== client.rs
+
+Outbound HTTP functions using reqwest. Each function constructs the request
+with proper headers and computes the HTTP Signature via `crypto.rs`.
+
+[source,rust]
+----
+pub async fn deliver_activity(
+    inbox_url: &str, activity: &APActivity,
+    key_id: &str, private_key: &RsaPrivateKey,
+) -> Result<u16, S2SError>;
+
+pub async fn fetch_actor(actor_url: &str) -> Result<APActor, S2SError>;
+
+pub async fn fetch_webfinger(
+    domain: &str, username: &str,
+) -> Result<WebFingerResponse, S2SError>;
+----
+
+== FederationDataSource: Phase 2 / Phase 3 Boundary
+
+The trait is the only part that changes between phases:
+
+[cols="1,2,2"]
+|===
+| Method | Phase 2 (MockDataSource) | Phase 3 (ZomeDataSource)
+
+| `get_actor`
+| Hardcoded alice/bob profiles with real RSA public keys
+| `activitypub.profile_to_ap_actor(agent)` via AppWebsocket
+
+| `get_webfinger`
+| Hardcoded JRD for alice/bob
+| `activitypub.get_webfinger_response(username, domain)`
+
+| `process_inbox`
+| Append to in-memory Vec (inspectable via debug endpoint)
+| `activitypub.process_follow/like/announce/mention`
+
+| `get_signing_key`
+| Pre-generated RSA private key from HashMap
+| OS keychain or encrypted local storage
+
+| `get_public_key_pem`
+| PEM exported from pre-generated keypair
+| Stored in zome `FederationConfig`
+|===
+
+.What does NOT change in Phase 3
+* `server.rs`, `handlers.rs`, `crypto.rs`, `client.rs` -- all remain as-is
+* The only new code is `ZomeDataSource` (in a new `conductor.rs` module)
+* Holochain types (`ActionHash`, `AgentPubKey`) stay internal to `ZomeDataSource`
+* The `federation_types` crate remains a zome-side dependency only
+
+== Implementation Steps
+
+Steps are ordered by dependency. Each step produces testable output.
+
+=== Step 1: error.rs
+
+Create unified error type. Foundation for all other new modules.
+
+.Files
+* link:../crates/activitypub-s2s/src/error.rs[`src/error.rs`] (new)
+
+=== Step 2: crypto.rs
+
+RSA key generation, HTTP Signature signing/verification, digest computation.
+No dependency on the HTTP server.
+
+.Files
+* link:../crates/activitypub-s2s/src/crypto.rs[`src/crypto.rs`] (new)
+
+.Unit tests
+* `test_generate_keypair` -- PEM export contains `BEGIN PUBLIC KEY`
+* `test_sign_verify_roundtrip` -- sign then verify with same key succeeds
+* `test_verify_wrong_key_fails` -- verify with different key returns false
+* `test_signing_string_construction` -- known input produces expected format
+* `test_digest_computation` -- known body produces expected SHA-256
+* `test_signature_header_formatting` -- output matches
+  `keyId="...",algorithm="rsa-sha256",headers="...",signature="..."`
+
+=== Step 3: mock_data.rs
+
+`FederationDataSource` trait + `MockDataSource` with alice and bob.
+
+.Files
+* link:../crates/activitypub-s2s/src/mock_data.rs[`src/mock_data.rs`] (new)
+
+=== Step 4: handlers.rs
+
+All four HTTP handler functions.
+
+.Files
+* link:../crates/activitypub-s2s/src/handlers.rs[`src/handlers.rs`] (new)
+
+=== Step 5: server.rs
+
+Router construction and server lifecycle.
+
+.Files
+* link:../crates/activitypub-s2s/src/server.rs[`src/server.rs`] (new)
+
+=== Step 6: client.rs
+
+Outbound HTTP client for activity delivery.
+
+.Files
+* link:../crates/activitypub-s2s/src/client.rs[`src/client.rs`] (new)
+
+=== Step 7: Update lib.rs
+
+Add `pub mod` declarations for all new modules.
+
+.Files
+* link:../crates/activitypub-s2s/src/lib.rs[`src/lib.rs`] (modified)
+
+=== Step 8: Update Cargo.toml
+
+Add all new dependencies.
+
+.Files
+* link:../crates/activitypub-s2s/Cargo.toml[`Cargo.toml`] (modified)
+
+=== Step 9: Example binary
+
+`localhost_server.rs` -- starts server on port 3000 (or `$PORT`), prints curl
+examples on startup.
+
+.Files
+* link:../crates/activitypub-s2s/examples/localhost_server.rs[`examples/localhost_server.rs`]
+  (new)
+
+=== Step 10: Bash test scripts
+
+Individual scripts for each protocol flow (see <<Bash Test Scripts>>).
+
+.Files
+* `tests/scripts/*.sh` (new, 11 files + output directory)
+
+=== Step 11: Verification
+
+Run all checks:
+
+[source,bash]
+----
+#!/usr/bin/env bash
+set -euo pipefail
+
+echo "=== 1. Build ==="
+cargo build -p activitypub-s2s
+
+echo "=== 2. Rust unit tests ==="
+cargo test -p activitypub-s2s
+
+echo "=== 3. Format check ==="
+cargo fmt -p activitypub-s2s -- --check
+
+echo "=== 4. Clippy ==="
+cargo clippy -p activitypub-s2s -- -D warnings
+
+echo "=== 5. Existing federation_types tests ==="
+cargo test -p federation_types
+
+echo "=== 6. Workspace check ==="
+cargo check --workspace
+
+echo "=== 7. Bash protocol tests ==="
+cargo run -p activitypub-s2s --example localhost_server &
+SERVER_PID=$!
+sleep 2
+bash crates/activitypub-s2s/tests/scripts/run-all.sh
+kill "$SERVER_PID"
+
+echo "=== ALL CHECKS PASSED ==="
+----
+
+== Sequence Diagrams
+
+=== WebFinger Discovery
+
+[plantuml]
+....
+@startuml
+skinparam style strictuml
+skinparam sequenceMessageAlign center
+
+participant "curl" as Client
+participant "axum Server\n(localhost:3000)" as Server
+participant "webfinger_handler" as Handler
+participant "MockDataSource" as Mock
+
+Client -> Server : GET /.well-known/webfinger\n?resource=acct:alice@localhost:3000
+Server -> Handler : extract Query params
+Handler -> Handler : parse acct URI\n(username="alice", domain="localhost:3000")
+Handler -> Handler : validate domain\nmatches server config
+Handler -> Mock : get_webfinger("alice", "localhost:3000")
+Mock -> Mock : lookup "alice" in HashMap
+Mock --> Handler : Some(WebFingerResponse)
+Handler --> Server : 200 OK\nContent-Type: application/jrd+json
+Server --> Client : {"subject":"acct:alice@localhost:3000",\n "links":[{"rel":"self",\n  "type":"application/activity+json",\n  "href":"http://localhost:3000/users/alice"}]}
+
+== Error: unknown user ==
+
+Client -> Server : GET /.well-known/webfinger\n?resource=acct:nobody@localhost:3000
+Server -> Handler : extract Query
+Handler -> Mock : get_webfinger("nobody", ...)
+Mock --> Handler : None
+Handler --> Server : 404 Not Found
+Server --> Client : HTTP 404
+
+@enduml
+....
+
+=== Actor Fetch
+
+[plantuml]
+....
+@startuml
+skinparam style strictuml
+
+participant "curl" as Client
+participant "axum Server" as Server
+participant "actor_handler" as Handler
+participant "MockDataSource" as Mock
+
+Client -> Server : GET /users/alice\nAccept: application/activity+json
+Server -> Handler : extract Path("alice")\ncheck Accept header
+Handler -> Mock : get_actor("alice")
+Mock -> Mock : build APActor\nwith real RSA public key PEM
+Mock --> Handler : Some(APActor)
+Handler --> Server : 200 OK\nContent-Type: application/activity+json
+Server --> Client : {"@context":[...],\n "type":"Person",\n "preferredUsername":"alice",\n "inbox":"http://localhost:3000/users/alice/inbox",\n "publicKey":{"publicKeyPem":"-----BEGIN PUBLIC KEY-----..."}}
+
+@enduml
+....
+
+=== Outbound Follow + Accept (Two Peers)
+
+[plantuml]
+....
+@startuml
+skinparam style strictuml
+
+participant "Server A\n(alice, :3000)" as A
+participant "client.rs" as ClientLib
+participant "crypto.rs" as Crypto
+participant "Server B\n(bob, :3001)" as B
+
+== Step 1: Alice sends Follow to Bob ==
+
+A -> A : construct APActivity {\n  type: "Follow",\n  actor: "http://localhost:3000/users/alice",\n  object: "http://localhost:3001/users/bob"\n}
+
+A -> Crypto : compute_digest(body)
+Crypto --> A : "SHA-256=..."
+
+A -> Crypto : build_signing_string(\n  "POST", "/users/bob/inbox",\n  [host, date, digest])
+Crypto --> A : signing_string
+
+A -> Crypto : sign(signing_string, alice_private_key)
+Crypto --> A : signature_b64
+
+A -> ClientLib : deliver_activity(\n  "http://localhost:3001/users/bob/inbox",\n  follow_activity, key_id, private_key)
+ClientLib -> B : POST /users/bob/inbox\nHost: localhost:3001\nDate: Fri, 30 Jan 2026 ...\nDigest: SHA-256=...\nSignature: keyId="...alice#main-key",...
+
+== Step 2: Bob verifies and processes ==
+
+B -> B : parse Signature header
+B -> A : GET /users/alice\n(fetch actor to get publicKeyPem)
+A --> B : APActor JSON with publicKeyPem
+B -> B : build_signing_string from\nreceived headers
+B -> Crypto : verify(signing_string,\n  signature, alice_public_key_pem)
+Crypto --> B : true
+B -> B : process_inbox("bob", follow_activity)
+B --> ClientLib : 202 Accepted
+ClientLib --> A : Ok(202)
+
+== Step 3: Bob sends Accept back to Alice ==
+
+B -> B : construct APActivity {\n  type: "Accept",\n  actor: ".../users/bob",\n  object: {original Follow}\n}
+B -> ClientLib : deliver_activity(\n  "http://localhost:3000/users/alice/inbox",\n  accept_activity, bob_key_id, bob_private_key)
+ClientLib -> A : POST /users/alice/inbox\n(signed by bob's key)
+A -> A : verify signature\n(fetch bob's actor from B)
+A -> A : process_inbox("alice", accept_activity)
+A --> ClientLib : 202 Accepted
+
+@enduml
+....
+
+=== Create Note Delivery
+
+[plantuml]
+....
+@startuml
+skinparam style strictuml
+
+participant "Server A\n(alice)" as A
+participant "client.rs" as Client
+participant "crypto.rs" as Crypto
+participant "Remote Inbox\n(localhost:3001)" as Remote
+
+A -> A : construct APNote {\n  content: "<p>Hello fediverse!</p>",\n  attributedTo: ".../users/alice",\n  to: [AS_PUBLIC],\n  cc: [".../alice/followers"]\n}
+A -> A : wrap in APActivity {\n  type: "Create",\n  object: note\n}
+A -> Client : deliver_activity(\n  inbox_url, create_activity,\n  alice_key_id, alice_private_key)
+
+Client -> Crypto : compute_digest(body_bytes)
+Crypto --> Client : "SHA-256=K0fG3p...="
+
+Client -> Crypto : build_signing_string(\n  "POST", "/users/bob/inbox",\n  [(host), (date), (digest)])
+Crypto --> Client : signing_string
+
+Client -> Crypto : sign(signing_string, private_key)
+Crypto --> Client : base64_signature
+
+Client -> Client : build Signature header
+
+Client -> Remote : POST /users/bob/inbox\nHost: localhost:3001\nDate: Fri, 30 Jan 2026 12:00:00 GMT\nDigest: SHA-256=K0fG3p...=\nContent-Type: application/activity+json\nSignature: keyId="...alice#main-key",\n  algorithm="rsa-sha256",\n  headers="(request-target) host date digest",\n  signature="Rk3fJ9..."\n\n{Create activity JSON}
+
+Remote -> Remote : verify signature
+Remote -> Remote : process_inbox("bob", create_activity)
+Remote --> Client : 202 Accepted
+Client --> A : Ok(202)
+
+@enduml
+....
+
+=== Inbound Mention (POST to Inbox)
+
+[plantuml]
+....
+@startuml
+skinparam style strictuml
+
+participant "curl\n(simulating remote)" as Remote
+participant "axum Server\n(localhost:3000)" as Server
+participant "inbox_handler" as Handler
+participant "crypto.rs" as Crypto
+participant "client.rs" as Client
+participant "MockDataSource" as Mock
+
+Remote -> Server : POST /users/alice/inbox\nSignature: keyId="http://localhost:3001/users/bob#main-key",...\nDigest: SHA-256=...\nDate: ...\nContent-Type: application/activity+json\n\n{"type":"Create",\n "actor":"http://localhost:3001/users/bob",\n "object":{"type":"Note",\n  "content":"Hey @alice!",\n  "tag":[{"type":"Mention",\n   "href":"http://localhost:3000/users/alice"}]}}
+
+Server -> Handler : extract Path("alice"),\nheaders, body
+
+Handler -> Handler : parse Signature header\n(keyId, algorithm, headers list, signature)
+
+Handler -> Handler : extract actor URI from keyId\n(strip #main-key fragment)
+
+Handler -> Client : fetch_actor(\n  "http://localhost:3001/users/bob")
+
+note right : fetches from the other\nlocalhost server instance
+
+Client --> Handler : APActor {\n  publicKey: {\n    publicKeyPem: "-----BEGIN..." } }
+
+Handler -> Crypto : build_signing_string(\n  "POST", "/users/alice/inbox",\n  received_headers, parsed_headers_list)
+Crypto --> Handler : reconstructed signing_string
+
+Handler -> Crypto : verify(\n  signing_string,\n  signature_b64,\n  public_key_pem)
+Crypto --> Handler : true (valid)
+
+Handler -> Handler : parse body as APActivity
+Handler -> Handler : validate activity.actor\nmatches Signature keyId owner
+
+Handler -> Mock : process_inbox("alice", activity)
+Mock -> Mock : append to received_activities Vec
+Mock --> Handler : Ok(())
+
+Handler --> Server : 202 Accepted
+Server --> Remote : HTTP 202
+
+@enduml
+....
+
+=== HTTP Signature Sign + Verify
+
+[plantuml]
+....
+@startuml
+skinparam style strictuml
+
+participant "Sender" as S
+participant "crypto.rs" as Crypto
+
+== Signing ==
+
+S -> S : prepare request:\n  method = "POST"\n  path = "/users/bob/inbox"\n  body = "{...activity JSON...}"
+
+S -> Crypto : compute_digest(body_bytes)
+Crypto -> Crypto : SHA-256 hash body,\nbase64 encode
+Crypto --> S : "SHA-256=K0fG3p...="
+
+S -> S : set headers:\n  Host: localhost:3001\n  Date: Fri, 30 Jan 2026 12:00:00 GMT\n  Digest: SHA-256=K0fG3p...=\n  Content-Type: application/activity+json
+
+S -> Crypto : build_signing_string("POST",\n  "/users/bob/inbox",\n  headers,\n  ["(request-target)", "host", "date", "digest"])
+Crypto -> Crypto : construct:\n  "(request-target): post /users/bob/inbox\n"\n  "host: localhost:3001\n"\n  "date: Fri, 30 Jan 2026 12:00:00 GMT\n"\n  "digest: SHA-256=K0fG3p...="
+Crypto --> S : signing_string
+
+S -> Crypto : sign(signing_string, private_key)
+Crypto -> Crypto : PKCS#1 v1.5 + SHA-256\nRSA sign, base64 encode
+Crypto --> S : "Rk3fJ9..."
+
+S -> S : set Signature header:\n  keyId="http://localhost:3000/users/alice#main-key",\n  algorithm="rsa-sha256",\n  headers="(request-target) host date digest",\n  signature="Rk3fJ9..."
+
+== Verification ==
+
+participant "Receiver" as R
+
+S -> R : HTTP request with\nSignature header
+
+R -> R : parse Signature header\n(extract keyId, headers list, signature)
+
+R -> R : fetch sender's actor by keyId\n(strip #main-key to get actor URL)
+
+R -> R : extract publicKeyPem from actor
+
+R -> Crypto : build_signing_string("POST", path,\n  received_headers, parsed_headers_list)
+Crypto --> R : reconstructed signing_string
+
+R -> Crypto : verify(signing_string,\n  signature_b64, public_key_pem)
+Crypto -> Crypto : base64 decode signature\nRSA PKCS#1 v1.5 + SHA-256\nverify against public key
+Crypto --> R : true / false
+
+R -> R : if true: process request\nif false: 401 Unauthorized
+
+@enduml
+....
+
+== Bash Test Scripts
+
+All scripts live in `crates/activitypub-s2s/tests/scripts/`. Each script:
+
+* Accepts environment variables: `PORT`, `BASE_URL`, `USERNAME`
+* Uses `set -euo pipefail`
+* Outputs response headers and body to `output/` directory via `tee`
+* Checks HTTP status codes and JSON fields with `jq`
+* Exits non-zero on failure
+
+=== lib.sh -- Shared Helpers
+
+[source,bash]
+----
+#!/usr/bin/env bash
+# Shared helpers for ActivityPub protocol test scripts.
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+OUTPUT_DIR="${SCRIPT_DIR}/output"
+mkdir -p "$OUTPUT_DIR"
+
+: "${PORT:=3000}"
+: "${BASE_URL:=http://localhost:${PORT}}"
+
+# Colors for pass/fail
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+NC='\033[0m'
+
+pass() { echo -e "${GREEN}PASS${NC}: $1"; }
+fail() { echo -e "${RED}FAIL${NC}: $1"; exit 1; }
+
+# Assert HTTP status code
+assert_status() {
+  local actual="$1" expected="$2" label="$3"
+  if [[ "$actual" == "$expected" ]]; then
+    pass "$label (HTTP $actual)"
+  else
+    fail "$label: expected HTTP $expected, got HTTP $actual"
+  fi
+}
+
+# Assert JSON field value using jq
+assert_json() {
+  local file="$1" expr="$2" expected="$3" label="$4"
+  local actual
+  actual=$(jq -r "$expr" < "$file")
+  if [[ "$actual" == "$expected" ]]; then
+    pass "$label"
+  else
+    fail "$label: expected '$expected', got '$actual'"
+  fi
+}
+
+# Assert JSON field contains substring
+assert_json_contains() {
+  local file="$1" expr="$2" substring="$3" label="$4"
+  local actual
+  actual=$(jq -r "$expr" < "$file")
+  if [[ "$actual" == *"$substring"* ]]; then
+    pass "$label"
+  else
+    fail "$label: '$actual' does not contain '$substring'"
+  fi
+}
+
+# Sign an HTTP request using openssl (for bash-side signature construction)
+# Usage: sign_request METHOD PATH BODY KEY_FILE KEY_ID
+sign_request() {
+  local method="$1" path="$2" body="$3" key_file="$4" key_id="$5"
+  local date host digest signing_string signature
+
+  date=$(date -u +"%a, %d %b %Y %H:%M:%S GMT")
+  host="localhost:${PORT}"
+
+  # Compute SHA-256 digest of body
+  digest="SHA-256=$(echo -n "$body" | openssl dgst -sha256 -binary | base64)"
+
+  # Build signing string
+  signing_string="(request-target): $(echo "$method" | tr '[:upper:]' '[:lower:]') ${path}
+host: ${host}
+date: ${date}
+digest: ${digest}"
+
+  # Sign with RSA-SHA256
+  signature=$(echo -n "$signing_string" | \
+    openssl dgst -sha256 -sign "$key_file" | base64 | tr -d '\n')
+
+  # Output headers for curl
+  echo "-H \"Date: ${date}\""
+  echo "-H \"Host: ${host}\""
+  echo "-H \"Digest: ${digest}\""
+  echo "-H \"Signature: keyId=\\\"${key_id}\\\",algorithm=\\\"rsa-sha256\\\",headers=\\\"(request-target) host date digest\\\",signature=\\\"${signature}\\\"\""
+}
+----
+
+=== 01-webfinger.sh
+
+[source,bash]
+----
+#!/usr/bin/env bash
+set -euo pipefail
+source "$(dirname "$0")/lib.sh"
+
+echo "=== Test: WebFinger Discovery ==="
+
+# Valid request for alice
+STATUS=$(curl -s -o "$OUTPUT_DIR/webfinger-alice.json" \
+  -w "%{http_code}" \
+  "${BASE_URL}/.well-known/webfinger?resource=acct:alice@localhost:${PORT}")
+assert_status "$STATUS" "200" "WebFinger alice"
+
+cat "$OUTPUT_DIR/webfinger-alice.json" | tee "$OUTPUT_DIR/webfinger-alice-pretty.json" | jq .
+
+assert_json "$OUTPUT_DIR/webfinger-alice.json" \
+  ".subject" "acct:alice@localhost:${PORT}" \
+  "WebFinger subject matches"
+
+assert_json "$OUTPUT_DIR/webfinger-alice.json" \
+  '.links[] | select(.rel=="self") | .type' "application/activity+json" \
+  "WebFinger self link type"
+
+assert_json_contains "$OUTPUT_DIR/webfinger-alice.json" \
+  '.links[] | select(.rel=="self") | .href' "/users/alice" \
+  "WebFinger self link href contains /users/alice"
+
+# Unknown user -> 404
+STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+  "${BASE_URL}/.well-known/webfinger?resource=acct:nobody@localhost:${PORT}")
+assert_status "$STATUS" "404" "WebFinger unknown user"
+
+# Missing resource param -> 400
+STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+  "${BASE_URL}/.well-known/webfinger")
+assert_status "$STATUS" "400" "WebFinger missing resource"
+
+echo "=== WebFinger: all tests passed ==="
+----
+
+=== 02-actor-fetch.sh
+
+[source,bash]
+----
+#!/usr/bin/env bash
+set -euo pipefail
+source "$(dirname "$0")/lib.sh"
+
+echo "=== Test: Actor Fetch ==="
+
+STATUS=$(curl -s -o "$OUTPUT_DIR/actor-alice.json" \
+  -w "%{http_code}" \
+  -H "Accept: application/activity+json" \
+  "${BASE_URL}/users/alice")
+assert_status "$STATUS" "200" "Actor alice"
+
+cat "$OUTPUT_DIR/actor-alice.json" | tee "$OUTPUT_DIR/actor-alice-pretty.json" | jq .
+
+assert_json "$OUTPUT_DIR/actor-alice.json" ".type" "Person" "Actor type is Person"
+assert_json "$OUTPUT_DIR/actor-alice.json" ".preferredUsername" "alice" "Username is alice"
+assert_json_contains "$OUTPUT_DIR/actor-alice.json" ".inbox" "/users/alice/inbox" "Inbox URL"
+assert_json_contains "$OUTPUT_DIR/actor-alice.json" ".outbox" "/users/alice/outbox" "Outbox URL"
+assert_json_contains "$OUTPUT_DIR/actor-alice.json" \
+  ".publicKey.publicKeyPem" "BEGIN PUBLIC KEY" "Public key PEM present"
+
+# Unknown user -> 404
+STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+  -H "Accept: application/activity+json" \
+  "${BASE_URL}/users/nobody")
+assert_status "$STATUS" "404" "Actor unknown user"
+
+echo "=== Actor Fetch: all tests passed ==="
+----
+
+=== 03-outbox.sh
+
+[source,bash]
+----
+#!/usr/bin/env bash
+set -euo pipefail
+source "$(dirname "$0")/lib.sh"
+
+echo "=== Test: Outbox ==="
+
+STATUS=$(curl -s -o "$OUTPUT_DIR/outbox-alice.json" \
+  -w "%{http_code}" \
+  -H "Accept: application/activity+json" \
+  "${BASE_URL}/users/alice/outbox")
+assert_status "$STATUS" "200" "Outbox alice"
+
+cat "$OUTPUT_DIR/outbox-alice.json" | jq .
+
+assert_json "$OUTPUT_DIR/outbox-alice.json" ".type" "OrderedCollection" "Outbox type"
+assert_json_contains "$OUTPUT_DIR/outbox-alice.json" ".id" "/users/alice/outbox" "Outbox id"
+
+echo "=== Outbox: all tests passed ==="
+----
+
+=== 04-inbox-unsigned.sh
+
+[source,bash]
+----
+#!/usr/bin/env bash
+set -euo pipefail
+source "$(dirname "$0")/lib.sh"
+
+echo "=== Test: Inbox POST without signature ==="
+
+BODY='{"@context":"https://www.w3.org/ns/activitystreams","type":"Follow","id":"http://remote/follow/1","actor":"http://remote/users/eve","object":"http://localhost:'"${PORT}"'/users/alice"}'
+
+STATUS=$(curl -s -o "$OUTPUT_DIR/inbox-unsigned.json" \
+  -w "%{http_code}" \
+  -X POST \
+  -H "Content-Type: application/activity+json" \
+  -d "$BODY" \
+  "${BASE_URL}/users/alice/inbox")
+assert_status "$STATUS" "401" "Inbox unsigned -> 401"
+
+echo "=== Inbox unsigned: all tests passed ==="
+----
+
+=== 05-inbox-signed.sh
+
+[source,bash]
+----
+#!/usr/bin/env bash
+set -euo pipefail
+source "$(dirname "$0")/lib.sh"
+
+echo "=== Test: Inbox POST with valid signature ==="
+
+# This test requires that the server exports alice's private key
+# for signing (or we use bob's key from a second server instance).
+# For Phase 2, we test by starting a second server on PORT_B
+# and having it send a signed Follow to the first server.
+
+: "${PORT_B:=3001}"
+: "${BASE_URL_B:=http://localhost:${PORT_B}}"
+
+# Step 1: Fetch bob's actor from server B to get key info
+curl -s -H "Accept: application/activity+json" \
+  "${BASE_URL_B}/users/bob" > "$OUTPUT_DIR/actor-bob.json"
+
+# Step 2: The server on PORT_B delivers a Follow to alice on PORT_A.
+# This is done via the __debug/deliver endpoint or a curl script
+# that computes the signature using openssl.
+
+# For direct bash signing, we need bob's private key exported as PEM.
+# The mock server exposes GET /__debug/key/{username} for test purposes.
+curl -s "${BASE_URL_B}/__debug/key/bob" > "$OUTPUT_DIR/bob-private-key.pem"
+
+BODY='{"@context":"https://www.w3.org/ns/activitystreams","type":"Follow","id":"http://localhost:'"${PORT_B}"'/activities/follow-1","actor":"http://localhost:'"${PORT_B}"'/users/bob","object":"http://localhost:'"${PORT}"'/users/alice"}'
+
+KEY_ID="http://localhost:${PORT_B}/users/bob#main-key"
+DATE=$(date -u +"%a, %d %b %Y %H:%M:%S GMT")
+DIGEST="SHA-256=$(echo -n "$BODY" | openssl dgst -sha256 -binary | base64)"
+HOST="localhost:${PORT}"
+REQUEST_TARGET="post /users/alice/inbox"
+
+SIGNING_STRING="(request-target): ${REQUEST_TARGET}
+host: ${HOST}
+date: ${DATE}
+digest: ${DIGEST}"
+
+SIGNATURE=$(echo -n "$SIGNING_STRING" | \
+  openssl dgst -sha256 -sign "$OUTPUT_DIR/bob-private-key.pem" | \
+  base64 | tr -d '\n')
+
+STATUS=$(curl -s -o "$OUTPUT_DIR/inbox-signed.json" \
+  -w "%{http_code}" \
+  -X POST \
+  -H "Content-Type: application/activity+json" \
+  -H "Date: ${DATE}" \
+  -H "Host: ${HOST}" \
+  -H "Digest: ${DIGEST}" \
+  -H "Signature: keyId=\"${KEY_ID}\",algorithm=\"rsa-sha256\",headers=\"(request-target) host date digest\",signature=\"${SIGNATURE}\"" \
+  -d "$BODY" \
+  "${BASE_URL}/users/alice/inbox")
+assert_status "$STATUS" "202" "Inbox signed Follow -> 202"
+
+# Verify the activity was received via debug endpoint
+curl -s "${BASE_URL}/__debug/inbox/alice" > "$OUTPUT_DIR/inbox-alice-received.json"
+assert_json "$OUTPUT_DIR/inbox-alice-received.json" '.[0].type' "Follow" \
+  "Received activity is a Follow"
+
+echo "=== Inbox signed: all tests passed ==="
+----
+
+=== 06-follow-flow.sh
+
+[source,bash]
+----
+#!/usr/bin/env bash
+set -euo pipefail
+source "$(dirname "$0")/lib.sh"
+
+echo "=== Test: Full Follow + Accept flow (two servers) ==="
+
+: "${PORT_A:=${PORT}}"
+: "${PORT_B:=3001}"
+
+# This script exercises the complete Follow flow:
+# 1. Alice (server A) sends Follow to Bob (server B)
+# 2. Bob's server verifies and processes
+# 3. Bob (server B) sends Accept{Follow} back to Alice (server A)
+# 4. Alice's server verifies and processes
+#
+# Each step is curl with openssl-signed requests.
+# Output tee'd to separate files for inspection.
+
+echo "--- Step 1: Alice -> Follow -> Bob ---"
+# (uses same signing technique as 05-inbox-signed.sh, targeting PORT_B)
+
+echo "--- Step 2: Bob -> Accept -> Alice ---"
+# (bob signs Accept wrapping the original Follow, sends to PORT_A)
+
+echo "--- Step 3: Verify both received ---"
+# Check alice received Accept, bob received Follow via debug endpoints
+
+echo "=== Follow flow: all tests passed ==="
+----
+
+=== 07-create-note.sh
+
+[source,bash]
+----
+#!/usr/bin/env bash
+set -euo pipefail
+source "$(dirname "$0")/lib.sh"
+
+echo "=== Test: Create Note delivery ==="
+
+: "${PORT_B:=3001}"
+
+# Alice creates a Note and delivers it as a Create activity to Bob's inbox
+
+NOTE_ID="http://localhost:${PORT}/notes/$(date +%s)"
+BODY=$(jq -n \
+  --arg context "https://www.w3.org/ns/activitystreams" \
+  --arg id "http://localhost:${PORT}/activities/create-1" \
+  --arg actor "http://localhost:${PORT}/users/alice" \
+  --arg note_id "$NOTE_ID" \
+  --arg content "<p>Hello from MewsFeed! #holochain</p>" \
+  '{
+    "@context": $context,
+    "type": "Create",
+    "id": $id,
+    "actor": $actor,
+    "object": {
+      "type": "Note",
+      "id": $note_id,
+      "attributedTo": $actor,
+      "content": $content,
+      "to": ["https://www.w3.org/ns/activitystreams#Public"],
+      "cc": [($actor + "/followers")]
+    },
+    "to": ["https://www.w3.org/ns/activitystreams#Public"],
+    "cc": [($actor + "/followers")]
+  }')
+
+echo "$BODY" | jq . | tee "$OUTPUT_DIR/create-note-body.json"
+
+# Sign and deliver (same technique as 05-inbox-signed.sh)
+# ... signing omitted for brevity, same pattern ...
+
+echo "=== Create Note: all tests passed ==="
+----
+
+=== 09-signature-verify.sh
+
+[source,bash]
+----
+#!/usr/bin/env bash
+set -euo pipefail
+source "$(dirname "$0")/lib.sh"
+
+echo "=== Test: Standalone HTTP Signature sign + verify ==="
+
+# Generate a throwaway RSA keypair with openssl
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 \
+  -out "$OUTPUT_DIR/test-private.pem" 2>/dev/null
+openssl rsa -in "$OUTPUT_DIR/test-private.pem" -pubout \
+  -out "$OUTPUT_DIR/test-public.pem" 2>/dev/null
+
+# Construct a signing string
+BODY='{"type":"Follow","actor":"http://example/users/test"}'
+DATE=$(date -u +"%a, %d %b %Y %H:%M:%S GMT")
+DIGEST="SHA-256=$(echo -n "$BODY" | openssl dgst -sha256 -binary | base64)"
+HOST="example.com"
+
+SIGNING_STRING="(request-target): post /users/bob/inbox
+host: ${HOST}
+date: ${DATE}
+digest: ${DIGEST}"
+
+echo "Signing string:"
+echo "$SIGNING_STRING"
+echo "---"
+
+# Sign
+SIGNATURE=$(echo -n "$SIGNING_STRING" | \
+  openssl dgst -sha256 -sign "$OUTPUT_DIR/test-private.pem" | base64 | tr -d '\n')
+echo "Signature: $SIGNATURE"
+
+# Verify with correct key
+echo -n "$SIGNING_STRING" | \
+  openssl dgst -sha256 -verify "$OUTPUT_DIR/test-public.pem" \
+  -signature <(echo "$SIGNATURE" | base64 -d) && \
+  pass "Signature verified with correct key" || \
+  fail "Signature verification failed with correct key"
+
+# Verify with wrong key (should fail)
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:2048 \
+  -out "$OUTPUT_DIR/wrong-private.pem" 2>/dev/null
+openssl rsa -in "$OUTPUT_DIR/wrong-private.pem" -pubout \
+  -out "$OUTPUT_DIR/wrong-public.pem" 2>/dev/null
+
+echo -n "$SIGNING_STRING" | \
+  openssl dgst -sha256 -verify "$OUTPUT_DIR/wrong-public.pem" \
+  -signature <(echo "$SIGNATURE" | base64 -d) 2>/dev/null && \
+  fail "Signature should NOT verify with wrong key" || \
+  pass "Signature correctly rejected with wrong key"
+
+echo "=== Signature verify: all tests passed ==="
+----
+
+=== run-all.sh
+
+[source,bash]
+----
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+source "${SCRIPT_DIR}/lib.sh"
+
+echo "========================================="
+echo " ActivityPub Localhost Protocol Tests"
+echo " Base URL: ${BASE_URL}"
+echo "========================================="
+echo ""
+
+PASS=0
+FAIL=0
+
+run_test() {
+  local script="$1"
+  echo ""
+  echo "--- Running: $(basename "$script") ---"
+  if bash "$script"; then
+    ((PASS++))
+  else
+    ((FAIL++))
+    echo "^^^ FAILED: $(basename "$script") ^^^"
+  fi
+}
+
+run_test "${SCRIPT_DIR}/01-webfinger.sh"
+run_test "${SCRIPT_DIR}/02-actor-fetch.sh"
+run_test "${SCRIPT_DIR}/03-outbox.sh"
+run_test "${SCRIPT_DIR}/04-inbox-unsigned.sh"
+run_test "${SCRIPT_DIR}/09-signature-verify.sh"
+
+# Tests requiring two servers
+if [[ -n "${PORT_B:-}" ]]; then
+  run_test "${SCRIPT_DIR}/05-inbox-signed.sh"
+  run_test "${SCRIPT_DIR}/06-follow-flow.sh"
+  run_test "${SCRIPT_DIR}/07-create-note.sh"
+  run_test "${SCRIPT_DIR}/08-inbound-mention.sh"
+else
+  echo ""
+  echo "(Skipping two-server tests: set PORT_B to enable)"
+fi
+
+echo ""
+echo "========================================="
+echo " Results: ${PASS} passed, ${FAIL} failed"
+echo "========================================="
+
+[[ "$FAIL" -eq 0 ]] || exit 1
+----
+
+== HTTP Endpoints Summary
+
+[cols="1,2,2,1"]
+|===
+| Method | Path | Content-Type | Status Codes
+
+| GET
+| `/.well-known/webfinger?resource=acct:{user}@{domain}`
+| `application/jrd+json`
+| 200, 400, 404
+
+| GET
+| `/users/{username}`
+| `application/activity+json`
+| 200, 404
+
+| POST
+| `/users/{username}/inbox`
+| `application/activity+json`
+| 202, 400, 401, 404
+
+| GET
+| `/users/{username}/outbox`
+| `application/activity+json`
+| 200, 404
+
+| GET
+| `/__debug/inbox/{username}`
+| `application/json`
+| 200 (Phase 2 only, debug)
+
+| GET
+| `/__debug/key/{username}`
+| `application/x-pem-file`
+| 200 (Phase 2 only, debug)
+|===
+
+The `/__debug/*` endpoints are only available in the mock data layer for
+bash test script access to keys and received activities. They will not exist
+in the Phase 3 `ZomeDataSource`.
+
+== What's Next: Phase 3
+
+After Phase 2 is verified, Phase 3 replaces `MockDataSource` with
+`ZomeDataSource`:
+
+. Create `conductor.rs` module implementing `FederationDataSource` via
+  AppWebsocket calls to the activitypub zome
+. Create the activitypub integrity and coordinator zomes
+  (entry types, link types, validation)
+. Wire `ZomeDataSource` into server startup instead of `MockDataSource`
+. Test with `curl` against the Holochain conductor
+. Test with a local Mastodon instance (Docker) for full interoperability
+
+The HTTP server, handlers, crypto, and client code remain *unchanged* from
+Phase 2.

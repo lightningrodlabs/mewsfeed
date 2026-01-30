@@ -21,4 +21,5 @@ dist.zip
 ## holo files
 holo-dev-server
 
-.claude
+.claudeCargo.lock
+pm
