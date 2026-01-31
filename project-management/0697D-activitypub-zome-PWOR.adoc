@@ -1,0 +1,226 @@
+= 0697D: Phase 3 -- ActivityPub Federation Zome
+:toc: macro
+:toc-title: Contents
+:sectnums:
+
+toc::[]
+
+== Abstract
+
+Phase 3 ("ActivityPub Zome") builds on the S2S server delivered in Phase 2
+(link:0697C-localhost-activitypub-pwor.adoc[0697C]). The S2S module was built
+first so that its protocol endpoints can serve as the test harness for the
+zome -- verification means round-tripping ActivityPub requests through the
+S2S server into the DHT and inspecting the persisted state.
+
+This phase delivers three things:
+
+1. A `federation_integrity` / `federation` zome pair storing federation state
+   on the DHT (entry types from link:../crates/federation_types/[`federation_types`]).
+2. A `ZomeDataSource` implementing
+   link:../crates/activitypub-s2s/src/mock_data.rs[`FederationDataSource`]
+   via `AppWebsocket`, replacing `MockDataSource`.
+3. An integration server binary and DHT debug endpoints so the Phase 2 bash
+   test pattern (curl + jq) can exercise and inspect the full round-trip.
+
+== Zome: Entry Types and Link Types
+
+Six entry types, all reusing structs from `federation_types`:
+`InstanceConfig`, `MewFederationState`, `RemoteActorRef`, `RemoteFollow`,
+`RemoteFollower`, `RemoteInteraction`. All public visibility.
+
+Seven link types connect them:
+
+[cols="1,3"]
+|===
+| Link Type | Purpose
+
+| `MewToFederationState` | Mew hash -> its federation intent
+| `AgentToRemoteFollows` | Agent -> outbound cross-network follows
+| `AgentToRemoteFollowers` | Agent -> inbound fediverse followers
+| `MewToRemoteInteractions` | Mew hash -> remote likes/boosts/replies
+| `AnchorToInstanceConfig` | Singleton config (first-write-wins)
+| `ApUriToFederationState` | Reverse lookup: AP URI string hash -> state
+| `ActorUriToRemoteActorRef` | Dedup cache: actor URI hash -> ref
+|===
+
+Validation: only the mew author may create `MewFederationState`; `RemoteFollow`
+requires `local_agent == author`; inbound types (`RemoteFollower`,
+`RemoteInteraction`) may be created by any agent (the S2S gateway agent).
+Link bases must match the relevant field in the target entry.
+
+== Zome: Coordinator Externs
+
+~18 functions in
+link:../dnas/mewsfeed/zomes/coordinator/federation/src/lib.rs[`federation/src/lib.rs`].
+Grouped: instance config (set/get), mew federation state (create/set_ap_uri/
+get/get_by_uri), remote actor refs (upsert/get), remote follows (create/
+update_status/list/delete), remote followers (create/list/delete), remote
+interactions (create/list/delete_by_activity_uri), inter-zome queries
+(get_agent_ap_profile, get_federated_mews_for_agent). Full signatures are
+in the prior revision of this specdoc and in the coordinator source once
+written.
+
+== Integration Tooling
+
+=== `ZomeDataSource`
+
+A new file link:../crates/activitypub-s2s/src/zome_data.rs[`zome_data.rs`]
+in the `activitypub-s2s` crate. Implements `FederationDataSource` by holding
+an `AppWebsocket` connection to the Holochain conductor and mapping each
+trait method to zome calls:
+
+  get_actor(username)        -> federation::get_agent_ap_profile
+                                + federation::get_instance_config
+                                -> construct APActor
+  get_webfinger(user, domain)-> federation::get_instance_config
+                                + profiles lookup
+  process_inbox(user, activity) -> route by activity.type:
+                                   Follow  -> create_remote_follower
+                                   Like    -> create_remote_interaction
+                                   Announce-> create_remote_interaction
+                                   Undo    -> delete_remote_follower / interaction
+  get_outbox(username)       -> federation::get_federated_mews_for_agent
+  get_signing_key(username)  -> local keystore (NOT on DHT)
+
+=== DHT Debug Endpoints
+
+Extend link:../crates/activitypub-s2s/src/server.rs[`build_router`] with
+routes that expose DHT state as JSON, inspectable via `curl | jq`:
+
+  GET /__debug/dht/instance-config
+  GET /__debug/dht/federation-state/{mew_hash}
+  GET /__debug/dht/remote-followers/{agent_key}
+  GET /__debug/dht/remote-interactions/{mew_hash}
+
+These call through `ZomeDataSource` to the coordinator zome's get functions.
+
+=== Integration Server
+
+A new example binary
+link:../crates/activitypub-s2s/examples/integration_server.rs[`integration_server.rs`].
+Connects to a running Holochain conductor (configurable via `APP_WS_URL`),
+constructs a `ZomeDataSource`, passes it to `build_router`, and serves on
+`PORT`. Replaces `MockDataSource` with live DHT storage.
+
+== Verification
+
+Verification reuses the Phase 2 bash test pattern
+(link:../crates/activitypub-s2s/tests/scripts/lib.bash[`lib.bash`] helpers:
+`assert_status`, `assert_json`, `ensure_server_running`).
+
+=== Build gate
+
+[source,bash]
+----
+cargo build -p federation_integrity --target wasm32-unknown-unknown --release
+cargo build -p federation --target wasm32-unknown-unknown --release
+cargo check --workspace
+npm run build:happ
+----
+
+=== Start the integrated stack
+
+[source,bash]
+----
+# Terminal 1: Holochain conductor with the mewsfeed DNA installed
+hc sandbox generate workdir/mewsfeed.happ --run 0
+# note the APP_WS_URL from output, eg ws://localhost:8888
+
+# Terminal 2: S2S integration server pointed at conductor
+APP_WS_URL=ws://localhost:8888 PORT=3000 \
+  cargo run -p activitypub-s2s --example integration_server
+----
+
+=== Round-trip: Follow activity persists as RemoteFollower
+
+[source,bash]
+----
+source tests/scripts/lib.bash
+
+# POST a signed Follow to alice's inbox (same as Phase 2 script 05)
+# ... build BODY, sign with openssl, POST to /users/alice/inbox ...
+STATUS=$(curl -s -o "$OUT" -w "%{http_code}" -X POST \
+  -H "Content-Type: application/activity+json" \
+  -H "Signature: ..." \
+  -d "$BODY" "${BASE_URL}/users/alice/inbox")
+assert_status "$STATUS" "202" "Inbox Follow -> 202"
+
+# Inspect DHT: the Follow should have created a RemoteFollower entry
+curl -s "${BASE_URL}/__debug/dht/remote-followers/${ALICE_AGENT_KEY}" \
+  > "$OUTPUT_DIR/dht-followers.json"
+assert_json "$OUTPUT_DIR/dht-followers.json" \
+  '.[0].remote_actor_uri' \
+  "http://remote.example/users/bob" \
+  "RemoteFollower persisted in DHT"
+----
+
+=== Round-trip: Like activity persists as RemoteInteraction
+
+[source,bash]
+----
+# POST a signed Like targeting a known mew
+BODY='{"@context":"...","type":"Like","actor":"http://remote.example/users/carol",
+  "id":"http://remote.example/activities/like-1",
+  "object":"https://cats.mewsfeed.example/notes/mew123"}'
+# ... sign and POST to inbox ...
+assert_status "$STATUS" "202" "Inbox Like -> 202"
+
+# Inspect DHT
+curl -s "${BASE_URL}/__debug/dht/remote-interactions/${MEW_HASH}" \
+  > "$OUTPUT_DIR/dht-interactions.json"
+assert_json "$OUTPUT_DIR/dht-interactions.json" \
+  '.[0].interaction_type' "Like" \
+  "RemoteInteraction (Like) persisted in DHT"
+----
+
+=== Round-trip: WebFinger and Actor resolve from DHT
+
+[source,bash]
+----
+# After instance config is set via the zome, WebFinger should resolve
+curl -s "${BASE_URL}/.well-known/webfinger?resource=acct:alice@cats.mewsfeed.example" \
+  > "$OUTPUT_DIR/wf.json"
+assert_json "$OUTPUT_DIR/wf.json" '.subject' \
+  'acct:alice@cats.mewsfeed.example' "WebFinger resolves from DHT"
+
+# Actor endpoint returns profile data from the profiles zome
+curl -s -H "Accept: application/activity+json" \
+  "${BASE_URL}/users/alice" > "$OUTPUT_DIR/actor.json"
+assert_json_contains "$OUTPUT_DIR/actor.json" '.inbox' "/inbox" \
+  "Actor inbox URL present"
+----
+
+=== Round-trip: Outbox reflects federated mews
+
+[source,bash]
+----
+# After creating a mew with federation state (via zome call or UI),
+# the outbox should include it
+curl -s -H "Accept: application/activity+json" \
+  "${BASE_URL}/users/alice/outbox" > "$OUTPUT_DIR/outbox.json"
+assert_json "$OUTPUT_DIR/outbox.json" '.totalItems' '1' \
+  "Outbox contains federated mew"
+----
+
+== File Layout
+
+----
+dnas/mewsfeed/zomes/integrity/federation/   (NEW)
+dnas/mewsfeed/zomes/coordinator/federation/  (NEW)
+crates/activitypub-s2s/src/zome_data.rs      (NEW)
+crates/activitypub-s2s/examples/integration_server.rs (NEW)
+crates/activitypub-s2s/src/server.rs         (MODIFIED -- debug DHT routes)
+crates/activitypub-s2s/src/handlers.rs       (MODIFIED -- debug DHT handlers)
+dnas/mewsfeed/workdir/dna.yaml               (MODIFIED)
+Cargo.toml                                   (MODIFIED)
+----
+
+== FFA
+
+When the verification scripts pass, the zome is confirmed to persist and
+serve ActivityPub federation data through the S2S protocol layer. Next steps
+are interop testing with Mastodon, Pixelfed, and Loops over a real network;
+signal-based push so the S2S server reacts to new mews without polling; and
+UI integration for the federation visibility picker and remote interaction
+display.
