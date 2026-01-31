@@ -6,9 +6,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 MewsFeed is a Twitter-like decentralized social media application built on Holochain. "Mews" are the equivalent of tweets, with features like replies, quotes, retweets ("mewmews"), likes ("licks"), mentions, hashtags, and cashtags.
 
-## Always Avoid
+## Safety
 
 Always avoid putting the home directory, current user, or other references to non-reproducible or personal environment in source files, documentation, and commit messages.
+Avoid absolute paths, or any path that includes any directories above the source repository, preferring relative paths, or path fragments relative to the source root. Common locations of executable system binaries could be an exception to the rule, for example in the shebang of a script.
+
+When making a file executable, never `chmod +x`, instead `chmod ug+x`.
 
 ## Project Management
 
@@ -43,6 +46,10 @@ Human-written tickets (or other documents) may serve as a specdoc, in which case
 When the code is generated, evaluate and report any inconsistency with the specdoc and other relevant documentation in the project management directory.
 
 When opening tickets (creating a file) in project-management/tickets, use AsciiDoc format.
+
+## bash scripts
+
+Create shell scripts with the `.bash` file extension and reference bash, not sh in the shebang.
 
 ## Development Environment
 
