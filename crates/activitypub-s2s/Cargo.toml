@@ -12,7 +12,7 @@ serde = { workspace = true, features = ["derive"] }
 serde_json = "1"
 
 # HTTP server + client
-axum = "0.7"
+axum = "0.8"
 tokio = { version = "1", features = ["full"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 tower = "0.5"

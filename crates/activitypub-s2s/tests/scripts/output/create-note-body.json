@@ -1,11 +1,11 @@
 {
   "@context": "https://www.w3.org/ns/activitystreams",
   "type": "Create",
-  "id": "http://localhost:3000/activities/create-note-1",
+  "id": "http://localhost:3000/activities/create-1769911411",
   "actor": "http://localhost:3000/users/alice",
   "object": {
     "type": "Note",
-    "id": "http://localhost:3000/notes/test-note-1",
+    "id": "http://localhost:3000/notes/1769911411",
     "attributedTo": "http://localhost:3000/users/alice",
     "content": "<p>Hello from MewsFeed! #holochain</p>",
     "to": [
