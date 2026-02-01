@@ -9,8 +9,14 @@
 
 pub mod activity;
 pub mod actor;
+pub mod client;
 pub mod collections;
+pub mod crypto;
+pub mod error;
+pub mod handlers;
+pub mod mock_data;
 pub mod note;
+pub mod server;
 pub mod signatures;
 pub mod webfinger;
 

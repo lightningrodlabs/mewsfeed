@@ -1,0 +1,1 @@
+{"@context":"https://www.w3.org/ns/activitystreams","id":"http://localhost:3000/users/alice/outbox","type":"OrderedCollection","totalItems":0}

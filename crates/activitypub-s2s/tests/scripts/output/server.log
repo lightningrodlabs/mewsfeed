@@ -1,0 +1,38 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.08s
+     Running `target/debug/examples/localhost_server`
+ActivityPub localhost server running on http://127.0.0.1:3000
+
+Mock users: alice, bob
+
+Try these curl commands:
+
+  # WebFinger discovery
+  curl -s 'http://127.0.0.1:3000/.well-known/webfinger?resource=acct:alice@localhost:3000' | jq .
+
+  # Fetch actor
+  curl -s -H 'Accept: application/activity+json' 'http://127.0.0.1:3000/users/alice' | jq .
+
+  # Fetch outbox
+  curl -s -H 'Accept: application/activity+json' 'http://127.0.0.1:3000/users/alice/outbox' | jq .
+
+  # Debug: list received inbox activities
+  curl -s 'http://127.0.0.1:3000/__debug/inbox/alice' | jq .
+
+  # Debug: export private key (PEM)
+  curl -s 'http://127.0.0.1:3000/__debug/key/alice'
+
+[2m2026-01-30T19:51:53.031322Z[0m [34mDEBUG[0m [1mrequest[0m[1m{[0m[3mmethod[0m[2m=[0mGET [3muri[0m[2m=[0m/.well-known/webfinger?resource=acct:alice@localhost:3000 [3mversion[0m[2m=[0mHTTP/1.1[1m}[0m[2m:[0m [2mtower_http::trace::on_request[0m[2m:[0m started processing request
+[2m2026-01-30T19:51:53.031585Z[0m [34mDEBUG[0m [1mrequest[0m[1m{[0m[3mmethod[0m[2m=[0mGET [3muri[0m[2m=[0m/.well-known/webfinger?resource=acct:alice@localhost:3000 [3mversion[0m[2m=[0mHTTP/1.1[1m}[0m[2m:[0m [2mtower_http::trace::on_response[0m[2m:[0m finished processing request [3mlatency[0m[2m=[0m0 ms [3mstatus[0m[2m=[0m200
+[2m2026-01-30T19:52:06.373096Z[0m [34mDEBUG[0m [1mrequest[0m[1m{[0m[3mmethod[0m[2m=[0mGET [3muri[0m[2m=[0m/users/alice [3mversion[0m[2m=[0mHTTP/1.1[1m}[0m[2m:[0m [2mtower_http::trace::on_request[0m[2m:[0m started processing request
+[2m2026-01-30T19:52:06.373387Z[0m [34mDEBUG[0m [1mrequest[0m[1m{[0m[3mmethod[0m[2m=[0mGET [3muri[0m[2m=[0m/users/alice [3mversion[0m[2m=[0mHTTP/1.1[1m}[0m[2m:[0m [2mtower_http::trace::on_response[0m[2m:[0m finished processing request [3mlatency[0m[2m=[0m0 ms [3mstatus[0m[2m=[0m200
+[2m2026-01-30T19:52:06.390767Z[0m [34mDEBUG[0m [1mrequest[0m[1m{[0m[3mmethod[0m[2m=[0mGET [3muri[0m[2m=[0m/users/nobody [3mversion[0m[2m=[0mHTTP/1.1[1m}[0m[2m:[0m [2mtower_http::trace::on_request[0m[2m:[0m started processing request
+[2m2026-01-30T19:52:06.390914Z[0m [34mDEBUG[0m [1mrequest[0m[1m{[0m[3mmethod[0m[2m=[0mGET [3muri[0m[2m=[0m/users/nobody [3mversion[0m[2m=[0mHTTP/1.1[1m}[0m[2m:[0m [2mtower_http::trace::on_response[0m[2m:[0m finished processing request [3mlatency[0m[2m=[0m0 ms [3mstatus[0m[2m=[0m404
+[2m2026-01-30T19:53:00.752586Z[0m [34mDEBUG[0m [1mrequest[0m[1m{[0m[3mmethod[0m[2m=[0mGET [3muri[0m[2m=[0m/users/alice/outbox [3mversion[0m[2m=[0mHTTP/1.1[1m}[0m[2m:[0m [2mtower_http::trace::on_request[0m[2m:[0m started processing request
+[2m2026-01-30T19:53:00.752784Z[0m [34mDEBUG[0m [1mrequest[0m[1m{[0m[3mmethod[0m[2m=[0mGET [3muri[0m[2m=[0m/users/alice/outbox [3mversion[0m[2m=[0mHTTP/1.1[1m}[0m[2m:[0m [2mtower_http::trace::on_response[0m[2m:[0m finished processing request [3mlatency[0m[2m=[0m0 ms [3mstatus[0m[2m=[0m200
+[2m2026-01-30T19:53:45.804474Z[0m [34mDEBUG[0m [1mrequest[0m[1m{[0m[3mmethod[0m[2m=[0mPOST [3muri[0m[2m=[0m/users/alice/inbox [3mversion[0m[2m=[0mHTTP/1.1[1m}[0m[2m:[0m [2mtower_http::trace::on_request[0m[2m:[0m started processing request
+[2m2026-01-30T19:53:45.804684Z[0m [34mDEBUG[0m [1mrequest[0m[1m{[0m[3mmethod[0m[2m=[0mPOST [3muri[0m[2m=[0m/users/alice/inbox [3mversion[0m[2m=[0mHTTP/1.1[1m}[0m[2m:[0m [2mtower_http::trace::on_response[0m[2m:[0m finished processing request [3mlatency[0m[2m=[0m0 ms [3mstatus[0m[2m=[0m401
+[2m2026-01-30T19:56:27.010140Z[0m [34mDEBUG[0m [1mrequest[0m[1m{[0m[3mmethod[0m[2m=[0mPOST [3muri[0m[2m=[0m/users/alice/inbox [3mversion[0m[2m=[0mHTTP/1.1[1m}[0m[2m:[0m [2mtower_http::trace::on_request[0m[2m:[0m started processing request
+[2m2026-01-30T19:56:27.028229Z[0m [32m INFO[0m [1mrequest[0m[1m{[0m[3mmethod[0m[2m=[0mPOST [3muri[0m[2m=[0m/users/alice/inbox [3mversion[0m[2m=[0mHTTP/1.1[1m}[0m[2m:[0m [2mactivitypub_s2s::mock_data[0m[2m:[0m inbox received activity [3musername[0m[2m=[0m"alice" [3mactivity_type[0m[2m=[0m"Follow"
+[2m2026-01-30T19:56:27.028344Z[0m [34mDEBUG[0m [1mrequest[0m[1m{[0m[3mmethod[0m[2m=[0mPOST [3muri[0m[2m=[0m/users/alice/inbox [3mversion[0m[2m=[0mHTTP/1.1[1m}[0m[2m:[0m [2mtower_http::trace::on_response[0m[2m:[0m finished processing request [3mlatency[0m[2m=[0m18 ms [3mstatus[0m[2m=[0m202
+[2m2026-01-30T19:56:27.033283Z[0m [34mDEBUG[0m [1mrequest[0m[1m{[0m[3mmethod[0m[2m=[0mGET [3muri[0m[2m=[0m/__debug/inbox/alice [3mversion[0m[2m=[0mHTTP/1.1[1m}[0m[2m:[0m [2mtower_http::trace::on_request[0m[2m:[0m started processing request
+[2m2026-01-30T19:56:27.033447Z[0m [34mDEBUG[0m [1mrequest[0m[1m{[0m[3mmethod[0m[2m=[0mGET [3muri[0m[2m=[0m/__debug/inbox/alice [3mversion[0m[2m=[0mHTTP/1.1[1m}[0m[2m:[0m [2mtower_http::trace::on_response[0m[2m:[0m finished processing request [3mlatency[0m[2m=[0m0 ms [3mstatus[0m[2m=[0m200

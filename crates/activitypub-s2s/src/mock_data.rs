@@ -22,21 +22,11 @@ pub trait FederationDataSource: Send + Sync {
         username: &str,
         domain: &str,
     ) -> Result<Option<WebFingerResponse>, S2SError>;
-    async fn process_inbox(
-        &self,
-        username: &str,
-        activity: APActivity,
-    ) -> Result<(), S2SError>;
-    async fn get_signing_key(
-        &self,
-        username: &str,
-    ) -> Result<Option<RsaPrivateKey>, S2SError>;
+    async fn process_inbox(&self, username: &str, activity: APActivity) -> Result<(), S2SError>;
+    async fn get_signing_key(&self, username: &str) -> Result<Option<RsaPrivateKey>, S2SError>;
     async fn get_public_key_pem(&self, username: &str) -> Result<Option<String>, S2SError>;
     /// Debug: return the list of activities received by a user's inbox.
-    async fn get_received_activities(
-        &self,
-        username: &str,
-    ) -> Result<Vec<APActivity>, S2SError>;
+    async fn get_received_activities(&self, username: &str) -> Result<Vec<APActivity>, S2SError>;
     /// Debug: return a user's private key as PEM.
     async fn get_private_key_pem(&self, username: &str) -> Result<Option<String>, S2SError>;
 }
@@ -46,6 +36,7 @@ struct MockUser {
     display_name: String,
     summary: String,
     private_key: RsaPrivateKey,
+    #[allow(dead_code)]
     public_key: RsaPublicKey,
     public_key_pem: String,
     received: Arc<Mutex<Vec<APActivity>>>,
@@ -91,7 +82,7 @@ impl MockDataSource {
 
     fn build_actor(&self, user: &MockUser) -> APActor {
         let base = self.base_url();
-        let actor_url = format!("{}/users/{}", base, user.username);
+        let actor_url = format!("{base}/users/{}", user.username);
         APActor {
             context: serde_json::json!([AS_CONTEXT, SECURITY_CONTEXT]),
             id: actor_url.clone(),
@@ -101,12 +92,12 @@ impl MockDataSource {
             summary: Some(format!("<p>{}</p>", user.summary)),
             icon: None,
             url: Some(actor_url.clone()),
-            inbox: format!("{}/inbox", actor_url),
-            outbox: format!("{}/outbox", actor_url),
-            followers: Some(format!("{}/followers", actor_url)),
-            following: Some(format!("{}/following", actor_url)),
+            inbox: format!("{actor_url}/inbox"),
+            outbox: format!("{actor_url}/outbox"),
+            followers: Some(format!("{actor_url}/followers")),
+            following: Some(format!("{actor_url}/following")),
             public_key: APPublicKey {
-                id: format!("{}#main-key", actor_url),
+                id: format!("{actor_url}#main-key"),
                 owner: actor_url,
                 public_key_pem: user.public_key_pem.clone(),
             },
@@ -129,7 +120,7 @@ impl FederationDataSource for MockDataSource {
         let base = self.base_url();
         Ok(Some(OrderedCollection {
             context: serde_json::json!(AS_CONTEXT),
-            id: format!("{}/users/{}/outbox", base, username),
+            id: format!("{base}/users/{username}/outbox"),
             collection_type: "OrderedCollection".to_string(),
             total_items: 0,
             first: None,
@@ -146,9 +137,9 @@ impl FederationDataSource for MockDataSource {
             return Ok(None);
         }
         let base = self.base_url();
-        let actor_url = format!("{}/users/{}", base, username);
+        let actor_url = format!("{base}/users/{username}");
         Ok(Some(WebFingerResponse {
-            subject: format!("acct:{}@{}", username, domain),
+            subject: format!("acct:{username}@{domain}"),
             aliases: vec![actor_url.clone()],
             links: vec![
                 WebFingerLink {
@@ -161,7 +152,7 @@ impl FederationDataSource for MockDataSource {
                 WebFingerLink {
                     rel: "http://webfinger.net/rel/profile-page".to_string(),
                     link_type: Some("text/html".to_string()),
-                    href: Some(format!("{}/users/{}", base, username)),
+                    href: Some(format!("{base}/users/{username}")),
                     template: None,
                     properties: Default::default(),
                 },
@@ -169,11 +160,7 @@ impl FederationDataSource for MockDataSource {
         }))
     }
 
-    async fn process_inbox(
-        &self,
-        username: &str,
-        activity: APActivity,
-    ) -> Result<(), S2SError> {
+    async fn process_inbox(&self, username: &str, activity: APActivity) -> Result<(), S2SError> {
         let user = self
             .users
             .get(username)
@@ -188,10 +175,7 @@ impl FederationDataSource for MockDataSource {
         Ok(())
     }
 
-    async fn get_signing_key(
-        &self,
-        username: &str,
-    ) -> Result<Option<RsaPrivateKey>, S2SError> {
+    async fn get_signing_key(&self, username: &str) -> Result<Option<RsaPrivateKey>, S2SError> {
         Ok(self.users.get(username).map(|u| u.private_key.clone()))
     }
 
@@ -199,10 +183,7 @@ impl FederationDataSource for MockDataSource {
         Ok(self.users.get(username).map(|u| u.public_key_pem.clone()))
     }
 
-    async fn get_received_activities(
-        &self,
-        username: &str,
-    ) -> Result<Vec<APActivity>, S2SError> {
+    async fn get_received_activities(&self, username: &str) -> Result<Vec<APActivity>, S2SError> {
         let user = self
             .users
             .get(username)
