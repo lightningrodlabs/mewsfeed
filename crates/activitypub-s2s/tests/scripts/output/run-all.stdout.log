@@ -1,0 +1,35 @@
+Starting localhost server on port 3000...
+Server on port 3000 is ready (PID 139465)
+=========================================
+ ActivityPub Localhost Protocol Tests
+ Base URL: http://localhost:3000
+=========================================
+
+
+--- Running: 01-webfinger.bash ---
+=== Test: WebFinger Discovery ===
+[0;32mPASS[0m: WebFinger alice (HTTP 200)
+{
+  "subject": "acct:alice@localhost:3000",
+  "aliases": [
+    "http://localhost:3000/users/alice"
+  ],
+  "links": [
+    {
+      "rel": "self",
+      "type": "application/activity+json",
+      "href": "http://localhost:3000/users/alice"
+    },
+    {
+      "rel": "http://webfinger.net/rel/profile-page",
+      "type": "text/html",
+      "href": "http://localhost:3000/users/alice"
+    }
+  ]
+}
+[0;32mPASS[0m: WebFinger subject matches
+[0;32mPASS[0m: WebFinger self link type
+[0;32mPASS[0m: WebFinger self link href contains /users/alice
+[0;32mPASS[0m: WebFinger unknown user (HTTP 404)
+[0;32mPASS[0m: WebFinger missing resource (HTTP 400)
+=== WebFinger: all tests passed ===

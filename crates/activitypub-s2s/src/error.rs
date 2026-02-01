@@ -36,18 +36,10 @@ impl IntoResponse for S2SError {
             S2SError::NotFound(msg) => (StatusCode::NOT_FOUND, msg.clone()),
             S2SError::Unauthorized(msg) => (StatusCode::UNAUTHORIZED, msg.clone()),
             S2SError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.clone()),
-            S2SError::Crypto(msg) => {
-                (StatusCode::INTERNAL_SERVER_ERROR, format!("crypto: {msg}"))
-            }
-            S2SError::HttpClient(e) => {
-                (StatusCode::BAD_GATEWAY, format!("upstream: {e}"))
-            }
-            S2SError::Json(e) => {
-                (StatusCode::BAD_REQUEST, format!("json: {e}"))
-            }
-            S2SError::SignatureParse(e) => {
-                (StatusCode::BAD_REQUEST, format!("signature: {e}"))
-            }
+            S2SError::Crypto(msg) => (StatusCode::INTERNAL_SERVER_ERROR, format!("crypto: {msg}")),
+            S2SError::HttpClient(e) => (StatusCode::BAD_GATEWAY, format!("upstream: {e}")),
+            S2SError::Json(e) => (StatusCode::BAD_REQUEST, format!("json: {e}")),
+            S2SError::SignatureParse(e) => (StatusCode::BAD_REQUEST, format!("signature: {e}")),
         };
         let body = serde_json::json!({ "error": message });
         (status, axum::Json(body)).into_response()

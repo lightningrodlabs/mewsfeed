@@ -18,22 +18,21 @@ pub fn generate_rsa_keypair() -> Result<(RsaPrivateKey, RsaPublicKey), S2SError>
 
 /// Export an RSA public key as a PEM string (SPKI / SubjectPublicKeyInfo).
 pub fn public_key_to_pem(key: &RsaPublicKey) -> Result<String, S2SError> {
-    key.to_public_key_pem(rsa::pkcs8::LineEnding::Lf)
+    key.to_public_key_pem(rsa::pkcs8::LineEnding::LF)
         .map_err(|e| S2SError::Crypto(format!("PEM export: {e}")))
 }
 
 /// Export an RSA private key as a PEM string (PKCS#8).
 pub fn private_key_to_pem(key: &RsaPrivateKey) -> Result<String, S2SError> {
     use rsa::pkcs8::EncodePrivateKey;
-    key.to_pkcs8_pem(rsa::pkcs8::LineEnding::Lf)
+    key.to_pkcs8_pem(rsa::pkcs8::LineEnding::LF)
         .map(|s| s.to_string())
         .map_err(|e| S2SError::Crypto(format!("private PEM export: {e}")))
 }
 
 /// Parse an RSA public key from a PEM string.
 pub fn public_key_from_pem(pem: &str) -> Result<RsaPublicKey, S2SError> {
-    RsaPublicKey::from_public_key_pem(pem)
-        .map_err(|e| S2SError::Crypto(format!("PEM import: {e}")))
+    RsaPublicKey::from_public_key_pem(pem).map_err(|e| S2SError::Crypto(format!("PEM import: {e}")))
 }
 
 /// Parse an RSA private key from a PKCS#8 PEM string.
@@ -64,7 +63,7 @@ pub fn build_signing_string(
         } else {
             let lower = name.to_lowercase();
             if let Some((_, value)) = headers.iter().find(|(k, _)| k.to_lowercase() == lower) {
-                lines.push(format!("{}: {}", lower, value));
+                lines.push(format!("{lower}: {value}"));
             }
         }
     }
@@ -92,7 +91,9 @@ pub fn verify(
         .map_err(|e| S2SError::Crypto(format!("base64 decode: {e}")))?;
     let signature = Signature::try_from(sig_bytes.as_slice())
         .map_err(|e| S2SError::Crypto(format!("invalid signature: {e}")))?;
-    Ok(verifying_key.verify(signing_string.as_bytes(), &signature).is_ok())
+    Ok(verifying_key
+        .verify(signing_string.as_bytes(), &signature)
+        .is_ok())
 }
 
 /// Compute the SHA-256 digest of a body, formatted as `SHA-256=base64...`.
@@ -150,7 +151,10 @@ mod tests {
     fn test_signing_string_construction() {
         let headers = vec![
             ("Host".to_string(), "example.com".to_string()),
-            ("Date".to_string(), "Fri, 30 Jan 2026 12:00:00 GMT".to_string()),
+            (
+                "Date".to_string(),
+                "Fri, 30 Jan 2026 12:00:00 GMT".to_string(),
+            ),
             ("Digest".to_string(), "SHA-256=abc123".to_string()),
         ];
         let result = build_signing_string(
@@ -171,7 +175,10 @@ mod tests {
         let digest = compute_digest(b"hello world");
         assert!(digest.starts_with("SHA-256="));
         // SHA-256 of "hello world" is known
-        assert_eq!(digest, "SHA-256=uU0nuZNNPgilLlLX2n2r+sSE7+N6U4DukIj3rOLvzek=");
+        assert_eq!(
+            digest,
+            "SHA-256=uU0nuZNNPgilLlLX2n2r+sSE7+N6U4DukIj3rOLvzek="
+        );
     }
 
     #[test]
