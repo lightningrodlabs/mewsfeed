@@ -1,34 +1,35 @@
-[package]
-name = "activitypub-s2s"
-version = "0.0.1"
-edition = "2021"
-description = "ActivityPub S2S protocol types and localhost server for MewsFeed federation"
+#!/usr/bin/env bash
+set -euo pipefail
+source "$(dirname "$0")/lib.bash"
 
-[lib]
-name = "activitypub_s2s"
+echo "=== Test: Actor Fetch ==="
 
-[dependencies]
-serde = { workspace = true, features = ["derive"] }
-serde_json = "1"
+# Fetch alice's actor
+STATUS="$(
+  set -x
+  curl -s -o "$OUTPUT_DIR/actor-alice.json" \
+    -w "%{http_code}" \
+    -H "Accept: $AP_CONTENT_TYPE" \
+    "${BASE_URL}/users/alice"
+)"
+assert_status "$STATUS" "200" "Actor alice"
 
-# HTTP server + client
-axum = "0.8"
-tokio = { version = "1", features = ["full"] }
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
-tower = "0.5"
-tower-http = { version = "0.6", features = ["trace", "cors"] }
-http = "1"
+jq . < "$OUTPUT_DIR/actor-alice.json"
 
-# Crypto for HTTP Signatures
-rsa = { version = "0.9", features = ["pem"] }
-sha2 = { version = "0.10", features = ["oid"] }
-base64 = "0.22"
-rand = "0.8"
-pkcs8 = { version = "0.10", features = ["pem"] }
+assert_json "$OUTPUT_DIR/actor-alice.json" ".type" "Person" "Actor type is Person"
+assert_json "$OUTPUT_DIR/actor-alice.json" ".preferredUsername" "alice" "Username is alice"
+assert_json_contains "$OUTPUT_DIR/actor-alice.json" ".inbox" "/users/alice/inbox" "Inbox URL"
+assert_json_contains "$OUTPUT_DIR/actor-alice.json" ".outbox" "/users/alice/outbox" "Outbox URL"
+assert_json_contains "$OUTPUT_DIR/actor-alice.json" \
+  ".publicKey.publicKeyPem" "BEGIN PUBLIC KEY" "Public key PEM present"
 
-# Utilities
-chrono = { version = "0.4", features = ["serde"] }
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-async-trait = "0.1"
-thiserror = "2"
+# Unknown user -> 404
+STATUS="$(
+  set -x
+  curl -s -o /dev/null -w "%{http_code}" \
+    -H "Accept: $AP_CONTENT_TYPE" \
+    "${BASE_URL}/users/nobody"
+)"
+assert_status "$STATUS" "404" "Actor unknown user"
+
+echo "=== Actor Fetch: all tests passed ==="

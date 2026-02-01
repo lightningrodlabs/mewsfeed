@@ -4,10 +4,14 @@ source "$(dirname "$0")/lib.bash"
 
 echo "=== Test: Outbox ==="
 
-STATUS=$(curl -s -o "$OUTPUT_DIR/outbox-alice.json" \
-  -w "%{http_code}" \
-  -H "Accept: application/activity+json" \
-  "${BASE_URL}/users/alice/outbox")
+# Fetch alice's outbox
+STATUS="$(
+  set -x
+  curl -s -o "$OUTPUT_DIR/outbox-alice.json" \
+    -w "%{http_code}" \
+    -H "Accept: $AP_CONTENT_TYPE" \
+    "${BASE_URL}/users/alice/outbox"
+)"
 assert_status "$STATUS" "200" "Outbox alice"
 
 jq . < "$OUTPUT_DIR/outbox-alice.json"

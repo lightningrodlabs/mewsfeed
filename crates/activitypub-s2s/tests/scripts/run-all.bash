@@ -6,11 +6,14 @@ source "${SCRIPT_DIR}/lib.bash"
 
 trap stop_servers EXIT
 
+# Start servers
 ensure_server_running "$PORT"
+ensure_server_running "$PORT_B"
 
 echo "========================================="
 echo " ActivityPub Localhost Protocol Tests"
-echo " Base URL: ${BASE_URL}"
+echo " Server A: ${BASE_URL}"
+echo " Server B: ${BASE_URL_B}"
 echo "========================================="
 echo ""
 
@@ -29,21 +32,24 @@ run_test() {
   fi
 }
 
-# Single-server tests
-run_test "${SCRIPT_DIR}/01-webfinger.bash"
-run_test "${SCRIPT_DIR}/02-actor-fetch.bash"
-run_test "${SCRIPT_DIR}/03-outbox.bash"
-run_test "${SCRIPT_DIR}/04-inbox-unsigned.bash"
-run_test "${SCRIPT_DIR}/09-signature-verify.bash"
+# All tests in order
+TESTS=(
+  # Single-server tests
+  "01-webfinger.bash"
+  "02-actor-fetch.bash"
+  "03-outbox.bash"
+  "04-inbox-unsigned.bash"
+  "09-signature-verify.bash"
+  # Two-server tests
+  "05-inbox-signed.bash"
+  "06-follow-flow.bash"
+  "07-create-note.bash"
+  "08-inbound-mention.bash"
+)
 
-# Two-server tests (require PORT_B to be set)
-if [[ -n "${PORT_B:-}" ]]; then
-  ensure_server_running "$PORT_B"
-  run_test "${SCRIPT_DIR}/05-inbox-signed.bash"
-else
-  echo ""
-  echo "(Skipping two-server tests: set PORT_B to enable)"
-fi
+for test in "${TESTS[@]}"; do
+  run_test "${SCRIPT_DIR}/${test}"
+done
 
 echo ""
 echo "========================================="
